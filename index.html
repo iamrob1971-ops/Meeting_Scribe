@@ -629,6 +629,7 @@ var PRESETS = {
   /* =====================================================================
      SECTION 3 - DISPATCH TO SHAREPOINT VIA POWER.TRACK PLUS-ADDRESSING
      ===================================================================== */
+ /* DISPATCH TO SHAREPOINT VIA POWER.TRACK +scribe_ ALIAS */
   $('dispatchSpBtn').addEventListener('click', function(){
     var rawNotes = page.value.trim();
     var summaryHtml = out.innerHTML.trim();
@@ -638,7 +639,7 @@ var PRESETS = {
     var meetingId = $('meetingIdInput').value.trim() || '';
     var attendees = $('attendeesInput').value.trim() || '';
 
-    // Slicing out Actions from Summary if possible
+    // Slicing out Actions from Summary if present
     var actionStart = summaryText.search(/Action Items|Tasks/i);
     var actionPortion = actionStart > -1 ? summaryText.slice(actionStart) : "";
 
@@ -656,11 +657,11 @@ var PRESETS = {
 
     // Copy to clipboard
     copy(payload).then(function(){
-      toast("Payload copied! Opening Outlook — just paste (Ctrl+V) and Send.");
+      toast("Payload copied! Opening Outlook — paste (Ctrl+V) and Send.");
 
-      // Plus-addressing destination: power.track+per_ProjectName@kencogroup.com
+      // Dedicated plus-addressing: power.track+scribe_ProjectName@kencogroup.com
       var safeProjTag = project.replace(/\s+/g, '_');
-      var targetEmail = "power.track+per_" + encodeURIComponent(safeProjTag) + "@kencogroup.com";
+      var targetEmail = "power.track+scribe_" + encodeURIComponent(safeProjTag) + "@kencogroup.com";
       var subject = encodeURIComponent("[SCRIBE] " + title);
       var owaUrl = "https://outlook.office.com/mail/deeplink/compose?to=" + targetEmail + "&subject=" + subject;
 
