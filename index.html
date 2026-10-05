@@ -629,7 +629,7 @@ var PRESETS = {
   /* =====================================================================
      SECTION 3 - DISPATCH TO SHAREPOINT VIA POWER.TRACK PLUS-ADDRESSING
      ===================================================================== */
- /* DISPATCH TO SHAREPOINT VIA POWER.TRACK +scribe_ ALIAS */
+/* DISPATCH TO SHAREPOINT VIA POWER.TRACK +scribe_ ALIAS */
   $('dispatchSpBtn').addEventListener('click', function(){
     var rawNotes = page.value.trim();
     var summaryHtml = out.innerHTML.trim();
@@ -639,30 +639,26 @@ var PRESETS = {
     var meetingId = $('meetingIdInput').value.trim() || '';
     var attendees = $('attendeesInput').value.trim() || '';
 
-    // Slicing out Actions from Summary if present
     var actionStart = summaryText.search(/Action Items|Tasks/i);
     var actionPortion = actionStart > -1 ? summaryText.slice(actionStart) : "";
 
-    // Build structured payload for Power Automate
     var payload = 
       "###SCRIBE_START###\n" +
-      "###PROJECT=" + project + "###\n" +
-      "###MEETING_ID=" + meetingId + "###\n" +
-      "###TITLE=" + title + "###\n" +
-      "###ATTENDEES=" + attendees + "###\n" +
       "###RAW_NOTES###\n" + rawNotes + "\n" +
       "###AI_SUMMARY###\n" + summaryHtml + "\n" +
       "###ACTION_ITEMS###\n" + actionPortion + "\n" +
       "###SCRIBE_END###";
 
-    // Copy to clipboard
     copy(payload).then(function(){
       toast("Payload copied! Opening Outlook — paste (Ctrl+V) and Send.");
 
-      // Dedicated plus-addressing: power.track+scribe_ProjectName@kencogroup.com
       var safeProjTag = project.replace(/\s+/g, '_');
       var targetEmail = "power.track+scribe_" + encodeURIComponent(safeProjTag) + "@kencogroup.com";
-      var subject = encodeURIComponent("[SCRIBE] " + title);
+      
+      // ✅ Bakes the ID into the Subject line where Outlook CANNOT corrupt it!
+      var idTag = meetingId ? ("[ID:" + meetingId + "] ") : "";
+      var subject = encodeURIComponent("[SCRIBE] " + idTag + title);
+      
       var owaUrl = "https://outlook.office.com/mail/deeplink/compose?to=" + targetEmail + "&subject=" + subject;
 
       window.open(owaUrl, '_blank', 'noopener');
