@@ -646,10 +646,10 @@ var PRESETS = {
     // Build structured payload for Power Automate
     var payload = 
       "###SCRIBE_START###\n" +
-      "###PROJECT###\n" + project + "\n" +
-      "###MEETING_ID###\n" + meetingId + "\n" +
-      "###TITLE###\n" + title + "\n" +
-      "###ATTENDEES###\n" + attendees + "\n" +
+      "###PROJECT=" + project + "###\n" +
+      "###MEETING_ID=" + meetingId + "###\n" +
+      "###TITLE=" + title + "###\n" +
+      "###ATTENDEES=" + attendees + "###\n" +
       "###RAW_NOTES###\n" + rawNotes + "\n" +
       "###AI_SUMMARY###\n" + summaryHtml + "\n" +
       "###ACTION_ITEMS###\n" + actionPortion + "\n" +
