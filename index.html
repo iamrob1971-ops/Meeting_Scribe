@@ -32,7 +32,7 @@ header.top{grid-column:1/-1;display:flex;align-items:center;justify-content:spac
 .card{background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
 .scribe{display:flex;flex-direction:column;min-height:calc(100vh - 90px)}
 .scribe-head{display:flex;align-items:center;gap:16px;padding:16px 20px;border-bottom:1px solid var(--line)}
-.rec{position:relative;flex:none;width:58px;height:58px;border-radius:50%;border:0;background:var(--navy);color:#fff;cursor:grid;place-items:center;transition:background .15s}
+.rec{position:relative;flex:none;width:58px;height:58px;border-radius:50%;border:0;background:var(--navy);color:#fff;cursor:pointer;display:grid;place-items:center;transition:background .15s}
 .rec:hover{background:var(--blue)}
 .rec svg{width:24px;height:24px}
 .rec .ic-stop{display:none}
@@ -52,7 +52,7 @@ header.top{grid-column:1/-1;display:flex;align-items:center;justify-content:spac
 .on-air .bars i:nth-child(4){animation-delay:.45s}.on-air .bars i:nth-child(5){animation-delay:.6s}
 @keyframes bar{0%,100%{height:4px}50%{height:16px}}
 
-/* Context Bar with Append Mode Toggle */
+/* Context Bar with Append Mode Selector */
 .ctx-bar{padding:10px 20px;border-bottom:1px solid var(--line);background:#F8FAFC;display:flex;gap:12px;align-items:center;font-size:13px;flex-wrap:wrap}
 .ctx-bar input,.ctx-bar select{border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:13px;background:#fff}
 
@@ -104,9 +104,9 @@ textarea.page::placeholder{color:#94A3B8;font-size:14px;line-height:1.5}
 .styleRow select{flex:1;min-width:0;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:#fff;font-size:13px}
 details.cfg{border-bottom:1px solid var(--line);padding:0 20px}
 details.cfg summary{cursor:pointer;padding:10px 0;font-size:12px;color:var(--muted);font-weight:600}
-.cfg-body{display:grid;gap:8px;padding:0 0 14px}
+.cfg-body{display:grid;gap:10px;padding:0 0 14px}
 .cfg label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
-.cfg input[type=password],.cfg select{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:#fff}
+.cfg input[type=text],.cfg input[type=password],.cfg select{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:#fff}
 
 .out{
   flex:1;padding:20px;overflow-y:auto;max-height:calc(100vh - 460px);min-height:240px;
@@ -157,7 +157,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
     <div class="brand">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Meeting Scribe
-      <small>Live audio scribe &middot; Audio file transcriber &middot; SharePoint intake</small>
+      <small>Live scribe &middot; Azure AI &amp; Gemini &middot; SharePoint intake</small>
     </div>
     <div class="top-r">
       <span class="pill" id="status"><span class="dot"></span><span id="statusText">Ready</span></span>
@@ -198,8 +198,8 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
       <span>
         <b>Save Mode:</b>
         <select id="saveModeSelect" style="font-weight:600;color:var(--navy)">
-          <option value="APPEND" selected>➕ Append to Meeting (Default)</option>
-          <option value="REPLACE">⚠️ Replace / Overwrite Meeting</option>
+          <option value="APPEND" selected>➕ Append Notes (Default)</option>
+          <option value="REPLACE">⚠️ Replace / Overwrite</option>
         </select>
       </span>
 
@@ -225,10 +225,9 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
     </div>
 
     <div class="actions">
-      <!-- Hidden file input for audio files -->
       <input type="file" id="audioFileInput" multiple accept="audio/*,.wav,.mp3,.m4a,.aac,.webm,.ogg" style="display:none">
       
-      <button class="btn" id="attachAudioBtn" title="Upload pre-recorded audio files (MP3, M4A, WAV, WebM). Multiple files and long recordings supported!">
+      <button class="btn" id="attachAudioBtn" title="Upload pre-recorded audio files (MP3, M4A, WAV, WebM). Multiple files supported!">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
         📁 Attach Audio
       </button>
@@ -265,16 +264,52 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
     </div>
 
     <details class="cfg" id="cfg">
-      <summary>AI settings (free Gemini key)</summary>
+      <summary>AI provider &amp; settings</summary>
       <div class="cfg-body">
-        <label>Google Gemini API Key
-          <input type="password" id="key" autocomplete="off" placeholder="Paste your free Gemini key here">
+        <label>AI Provider
+          <select id="prov">
+            <option value="azure">Azure OpenAI (Kenco APIM Gateway - gpt-5-mini)</option>
+            <option value="gemini">Google Gemini (AI Studio Free Key)</option>
+            <option value="groq">Groq (Llama 3.3 70B &amp; Whisper)</option>
+          </select>
         </label>
-        <label>Model
-          <select id="model"></select>
-        </label>
+
+        <!-- Dynamic Provider Settings -->
+        <div id="azureCfg">
+          <label>APIM Gateway Endpoint
+            <input type="text" id="azureEndpoint" value="https://kenco-transcription-apim.azure-api.net/openai">
+          </label>
+          <label>Deployment Name
+            <input type="text" id="azureDeploy" value="gpt-5-mini">
+          </label>
+          <label>API Version
+            <input type="text" id="azureApiVer" value="2024-12-01-preview">
+          </label>
+        </div>
+
+        <div id="geminiCfg" style="display:none">
+          <label>Google Gemini API Key
+            <input type="password" id="geminiKey" autocomplete="off" placeholder="Paste Gemini API key">
+          </label>
+          <label>Model
+            <select id="geminiModel"></select>
+          </label>
+        </div>
+
+        <div id="groqCfg" style="display:none">
+          <label>Groq API Key
+            <input type="password" id="groqKey" autocomplete="off" placeholder="Paste Groq API key">
+          </label>
+          <label>Model
+            <select id="groqModel">
+              <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Recommended)</option>
+              <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Ultra-Fast)</option>
+            </select>
+          </label>
+        </div>
+
         <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn sm" id="checkKey" type="button">Verify key &amp; list models</button>
+          <button class="btn sm" id="checkKey" type="button">Test Provider Connection</button>
           <label style="font-size:12px;margin:0;display:flex;align-items:center;gap:4px"><input type="checkbox" id="remember" checked> Remember on this device</label>
         </div>
       </div>
@@ -427,7 +462,7 @@ var PRESETS = {
   $('instCancel').addEventListener('click',function(){dlg.close()});
   $('dlgX').addEventListener('click',function(){dlg.close()});
 
-  /* Case-Insensitive URL Parameter Reader (Power Apps Launch Compatibility) */
+  /* Case-Insensitive URL Parameter Reader */
   function getUrlParam(name) {
     var params = new URLSearchParams(window.location.search);
     for (var pair of params.entries()) {
@@ -589,12 +624,6 @@ var PRESETS = {
   var audioQueueText = $('audioQueueText');
 
   attachAudioBtn.addEventListener('click', function(){
-    var key = ($('key').value || '').trim();
-    if (!key) {
-      $('cfg').open = true;
-      alert('Please add your free Gemini API Key under AI Settings first before transcribing audio files.');
-      return;
-    }
     audioFileInput.click();
   });
 
@@ -616,21 +645,10 @@ var PRESETS = {
     function setUint16(data) { out.setUint16(pos, data, true); pos += 2; }
     function setUint32(data) { out.setUint32(pos, data, true); pos += 4; }
 
-    setUint32(0x46464952); // "RIFF"
-    setUint32(length - 8);
-    setUint32(0x45564157); // "WAVE"
-
-    setUint32(0x20746d66); // "fmt "
-    setUint32(16);
-    setUint16(1);          // PCM
-    setUint16(1);          // Mono
-    setUint32(sampleRate);
-    setUint32(sampleRate * 2);
-    setUint16(2);
-    setUint16(16);
-
-    setUint32(0x61746164); // "data"
-    setUint32(length - pos - 4);
+    setUint32(0x46464952); setUint32(length - 8); setUint32(0x45564157);
+    setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(1);
+    setUint32(sampleRate); setUint32(sampleRate * 2); setUint16(2); setUint16(16);
+    setUint32(0x61746164); setUint32(length - pos - 4);
 
     for (var i = 0; i < buffer.length; i++) {
       var s = Math.max(-1, Math.min(1, channel[i]));
@@ -673,6 +691,7 @@ var PRESETS = {
 
         chunkPayloads.push({
           base64: b64,
+          blob: wavBlob,
           mimeType: 'audio/wav',
           label: fmt(Math.round(startSec)) + ' - ' + fmt(Math.round(endSec)),
           chunkIndex: c + 1,
@@ -687,6 +706,7 @@ var PRESETS = {
       var rawB64 = await fileToBase64(file);
       return [{
         base64: rawB64,
+        blob: file,
         mimeType: file.type || 'audio/mp3',
         label: 'Full',
         chunkIndex: 1,
@@ -695,49 +715,56 @@ var PRESETS = {
     }
   }
 
-  async function transcribeChunkWithGemini(chunkPayload, key, model) {
-    var prompt = "Please provide an accurate, complete, verbatim transcript of all spoken dialogue in this audio segment. Do not summarize or omit speech. Maintain chronological flow.";
+  // Multi-Provider Audio Transcription
+  async function transcribeChunkWithActiveProvider(chunkPayload) {
+    var p = $('prov').value;
+    var prompt = "Please provide an accurate, complete, verbatim transcript of all spoken dialogue in this audio segment. Do not summarize.";
 
-    var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+    if (p === 'groq') {
+      var gKey = ($('groqKey').value || '').trim();
+      if (!gKey) throw new Error("Add your free Groq API key under settings.");
+      var fd = new FormData();
+      fd.append('file', chunkPayload.blob, 'audio.wav');
+      fd.append('model', 'whisper-large-v3');
+      fd.append('response_format', 'json');
+
+      var grRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + gKey },
+        body: fd
+      });
+      var grData = await grRes.json();
+      if (!grRes.ok) throw new Error(grData.error && grData.error.message || 'Groq Whisper error');
+      return grData.text;
+    }
+
+    // Default to Gemini for audio transcription
+    var gemKey = ($('geminiKey').value || '').trim();
+    if (!gemKey) throw new Error("Please enter your Gemini API key under AI settings for audio transcription.");
+
+    var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': key
-      },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': gemKey },
       body: JSON.stringify({
         contents: [{
           role: 'user',
           parts: [
-            {
-              inlineData: {
-                mimeType: chunkPayload.mimeType,
-                data: chunkPayload.base64
-              }
-            },
+            { inlineData: { mimeType: chunkPayload.mimeType, data: chunkPayload.base64 } },
             { text: prompt }
           ]
         }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192
-        }
+        generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
       })
     });
 
     var data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error && data.error.message || ('Gemini Audio API Error: ' + res.status));
-    }
+    if (!res.ok) throw new Error(data.error && data.error.message || ('Gemini Error: ' + res.status));
     return data.candidates[0].content.parts.map(function(p){ return p.text || ''; }).join('').trim();
   }
 
   audioFileInput.addEventListener('change', async function(e){
     var files = Array.from(e.target.files);
     if (!files.length) return;
-
-    var key = ($('key').value || '').trim();
-    // Default to stable 2.5-flash for audio to prevent 503 high demand issues
-    var model = ($('model').value || 'gemini-2.5-flash').trim();
 
     audioQueueBar.style.display = 'flex';
     attachAudioBtn.disabled = true;
@@ -755,7 +782,7 @@ var PRESETS = {
           var chunk = chunks[c];
           audioQueueText.textContent = '[' + fileLabel + '] Transcribing slice ' + chunk.chunkIndex + '/' + chunk.totalChunks + ' (' + chunk.label + ')...';
           
-          var transcript = await transcribeChunkWithGemini(chunk, key, model);
+          var transcript = await transcribeChunkWithActiveProvider(chunk);
 
           var timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
           var chunkHeader = "\n\n--- [Audio: " + file.name + " (" + chunk.label + ") · Transcribed " + timeStr + "] ---\n";
@@ -777,7 +804,7 @@ var PRESETS = {
     audioQueueBar.style.display = 'none';
     attachAudioBtn.disabled = false;
     audioFileInput.value = '';
-    toast('All audio files processed & appended to editor!');
+    toast('All audio files processed!');
   });
 
   /* Copy Actions */
@@ -806,31 +833,97 @@ var PRESETS = {
     updateUI();
   });
 
-  /* AI Settings & Gemini Integration */
-  var defaultModels=['gemini-2.5-flash','gemini-3.8-flash','gemini-2.0-flash'];
-  function initModels(){
-    var sel=$('model');sel.innerHTML='';
-    defaultModels.forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent=m;sel.appendChild(o)});
-    var saved=load('ms_gemini_model');if(saved)sel.value=saved;
-    $('key').value=load('ms_gemini_key')||'';
+  /* =====================================================================
+     MULTI-PROVIDER AI SETTINGS (Azure APIM, Gemini & Groq)
+     ===================================================================== */
+  var provSelect = $('prov');
+  function updateProviderView(){
+    var p = provSelect.value;
+    $('azureCfg').style.display = (p === 'azure' ? 'block' : 'none');
+    $('geminiCfg').style.display = (p === 'gemini' ? 'block' : 'none');
+    $('groqCfg').style.display = (p === 'groq' ? 'block' : 'none');
   }
-  initModels();
+  provSelect.addEventListener('change', function(){
+    store('ms_provider', this.value);
+    updateProviderView();
+  });
 
-  $('model').addEventListener('change',function(){store('ms_gemini_model',this.value)});
-  $('key').addEventListener('input',function(){if($('remember').checked)store('ms_gemini_key',this.value.trim())});
-  $('remember').addEventListener('change',function(){if(!this.checked)store('ms_gemini_key',null);else store('ms_gemini_key',$('key').value.trim())});
+  var defaultGemini=['gemini-2.5-flash','gemini-3.8-flash','gemini-2.0-flash'];
+  function initAIConfigs(){
+    var savedProv = load('ms_provider') || 'azure';
+    provSelect.value = savedProv;
+    updateProviderView();
 
-  $('checkKey').addEventListener('click',async function(){
-    var k=$('key').value.trim();if(!k){alert('Paste your Gemini key first!');return}
-    try{
-      var r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',{headers:{'x-goog-api-key':k}});
-      var d=await r.json();if(!r.ok)throw new Error(d.error&&d.error.message||'Key error');
-      var names=(d.models||[]).filter(function(m){return /gemini/i.test(m.name)&&(m.supportedGenerationMethods||[]).includes('generateContent')&&!/image|audio|robotics/i.test(m.name)}).map(function(m){return m.name.replace(/^models\//,'')});
-      var sel=$('model');sel.innerHTML='';
-      names.forEach(function(n){var o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o)});
-      if(names.includes('gemini-2.5-flash'))sel.value='gemini-2.5-flash';
-      toast('Verified! '+names.length+' models available.');
-    }catch(e){alert('Verification failed: '+e.message)}
+    $('azureEndpoint').value = load('ms_az_endpoint') || 'https://kenco-transcription-apim.azure-api.net/openai';
+    $('azureDeploy').value = load('ms_az_deploy') || 'gpt-5-mini';
+    $('azureApiVer').value = load('ms_az_ver') || '2024-12-01-preview';
+
+    var gSel = $('geminiModel'); gSel.innerHTML = '';
+    defaultGemini.forEach(function(m){ var o=document.createElement('option');o.value=m;o.textContent=m;gSel.appendChild(o); });
+    var savedGMod = load('ms_gemini_model'); if(savedGMod) gSel.value = savedGMod;
+    $('geminiKey').value = load('ms_gemini_key') || '';
+
+    $('groqKey').value = load('ms_groq_key') || '';
+  }
+  initAIConfigs();
+
+  function saveProviderInputs(){
+    if (!$('remember').checked) return;
+    store('ms_az_endpoint', $('azureEndpoint').value.trim());
+    store('ms_az_deploy', $('azureDeploy').value.trim());
+    store('ms_az_ver', $('azureApiVer').value.trim());
+    store('ms_gemini_key', $('geminiKey').value.trim());
+    store('ms_gemini_model', $('geminiModel').value);
+    store('ms_groq_key', $('groqKey').value.trim());
+  }
+
+  ['azureEndpoint','azureDeploy','azureApiVer','geminiKey','groqKey'].forEach(function(id){
+    $(id).addEventListener('input', saveProviderInputs);
+  });
+  $('geminiModel').addEventListener('change', saveProviderInputs);
+  $('groqModel').addEventListener('change', saveProviderInputs);
+
+  // Test Provider Connection Button
+  $('checkKey').addEventListener('click', async function(){
+    var p = provSelect.value;
+    toast('Testing ' + p.toUpperCase() + ' connection...');
+
+    try {
+      if (p === 'azure') {
+        var base = $('azureEndpoint').value.trim().replace(/\/+$/, '');
+        var dep = $('azureDeploy').value.trim();
+        var ver = $('azureApiVer').value.trim();
+        var testUrl = base + '/deployments/' + encodeURIComponent(dep) + '/chat/completions?api-version=' + encodeURIComponent(ver);
+
+        var r = await fetch(testUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'Say OK' }],
+            max_completion_tokens: 10
+          })
+        });
+        var d = await r.json();
+        if (!r.ok) throw new Error(d.error && d.error.message || ('Azure APIM HTTP ' + r.status));
+        alert('Azure OpenAI (gpt-5-mini via APIM) connected successfully! Response: ' + d.choices[0].message.content);
+      } else if (p === 'gemini') {
+        var k = $('geminiKey').value.trim();
+        if(!k) throw new Error('Paste Gemini key first');
+        var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: {'x-goog-api-key': k} });
+        var d = await r.json();
+        if (!r.ok) throw new Error(d.error && d.error.message || 'Key failed');
+        alert('Google Gemini verified! ' + d.models.length + ' models available.');
+      } else if (p === 'groq') {
+        var gk = $('groqKey').value.trim();
+        if(!gk) throw new Error('Paste Groq key first');
+        var r = await fetch('https://api.groq.com/openai/v1/models', { headers: {'Authorization': 'Bearer ' + gk} });
+        var d = await r.json();
+        if (!r.ok) throw new Error(d.error && d.error.message || 'Groq key failed');
+        alert('Groq verified successfully!');
+      }
+    } catch(e) {
+      alert('Connection Test Failed: ' + e.message);
+    }
   });
 
   /* Markdown Parser */
@@ -870,28 +963,89 @@ var PRESETS = {
     }
   });
 
-  /* Step 2: Summarize with AI */
-  $('sumBtn').addEventListener('click',async function(){
-    var k=$('key').value.trim(),m=$('model').value.trim();
-    if(!k){$('cfg').open=true;alert('Add your free Gemini API key under AI settings.');return}
-    var prompt=getFullPromptText();
-    this.disabled=true;$('copyNotes').disabled=true;
-    out.innerHTML='<div class="loading"><span class="spin"></span>Analyzing meeting transcript and structuring action items...</div>';
+  /* Call AI with Selected Provider */
+  async function generateSummaryWithActiveProvider(prompt){
+    var p = provSelect.value;
+    var sys = getInstr();
 
-    try{
-      var r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(m)+':generateContent',{
-        method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':k},
-        body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{temperature:0.2,maxOutputTokens:8192}})
+    // 1. AZURE OPENAI VIA APIM GATEWAY
+    if (p === 'azure') {
+      var base = $('azureEndpoint').value.trim().replace(/\/+$/, '');
+      var dep = $('azureDeploy').value.trim();
+      var ver = $('azureApiVer').value.trim();
+      var targetUrl = base + '/deployments/' + encodeURIComponent(dep) + '/chat/completions?api-version=' + encodeURIComponent(ver);
+
+      var res = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: prompt }
+          ],
+          max_completion_tokens: 8192
+        })
       });
-      var d=await r.json();if(!r.ok)throw new Error(d.error&&d.error.message||'Gemini error');
-      var notesText=d.candidates[0].content.parts.map(function(p){return p.text||''}).join('');
-      out.innerHTML=mdToHtml(notesText);
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error && data.error.message || ('Azure APIM Error: ' + res.status));
+      return data.choices[0].message.content;
+    }
+
+    // 2. GROQ
+    if (p === 'groq') {
+      var gk = $('groqKey').value.trim();
+      var gm = $('groqModel').value;
+      if (!gk) throw new Error('Enter your Groq API key.');
+      var gRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + gk },
+        body: JSON.stringify({
+          model: gm,
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.2
+        })
+      });
+      var gd = await gRes.json();
+      if (!gRes.ok) throw new Error(gd.error && gd.error.message || 'Groq error');
+      return gd.choices[0].message.content;
+    }
+
+    // 3. GOOGLE GEMINI
+    var k = $('geminiKey').value.trim();
+    var m = $('geminiModel').value || 'gemini-2.5-flash';
+    if (!k) throw new Error('Enter your Gemini API key.');
+
+    var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(m) + ':generateContent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': k },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: sys }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
+      })
+    });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error && d.error.message || ('Gemini error: ' + r.status));
+    return d.candidates[0].content.parts.map(function(x){ return x.text || ''; }).join('');
+  }
+
+  $('sumBtn').addEventListener('click', async function(){
+    var prompt = getFullPromptText();
+    this.disabled = true; $('copyNotes').disabled = true;
+    out.innerHTML = '<div class="loading"><span class="spin"></span>Generating meeting minutes with ' + provSelect.value.toUpperCase() + '...</div>';
+
+    try {
+      var notesText = await generateSummaryWithActiveProvider(prompt);
+      out.innerHTML = mdToHtml(notesText);
       checkNotesState();
-      toast('Minutes generated! Click inside to edit.');
-    }catch(e){
-      out.innerHTML='<div class="err">'+esc(e.message)+'</div>';
-    }finally{
-      $('sumBtn').disabled=false;
+      toast('Minutes generated successfully!');
+    } catch(e) {
+      out.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+    } finally {
+      $('sumBtn').disabled = false;
     }
   });
 
@@ -934,7 +1088,6 @@ var PRESETS = {
       var safeProjTag = project.replace(/\s+/g, '_');
       var targetEmail = "power.track+scribe_" + encodeURIComponent(safeProjTag) + "@kencogroup.com";
       
-      // ✅ Bakes ID and MODE into Subject line
       var idTag = meetingId ? ("[ID:" + meetingId + "] ") : "";
       var modeTag = "[MODE:" + saveMode + "] ";
       var subject = encodeURIComponent("[SCRIBE] " + idTag + modeTag + title);
@@ -975,6 +1128,7 @@ var PRESETS = {
       text:page.value, notes:notesHtml,
       title:$('title').value, project:$('projectInput').value,
       meetingId:$('meetingIdInput').value, attendees:$('attendeesInput').value,
+      saveMode:$('saveModeSelect').value,
       seconds:seconds, savedAt:Date.now()
     };
   }
@@ -999,7 +1153,9 @@ var PRESETS = {
     clearTimeout(saveT);saveT=setTimeout(saveNow,1000);
   }
 
-  ['title','projectInput','meetingIdInput','attendeesInput'].forEach(function(id){$(id).addEventListener('input',scheduleSave)});
+  ['title','projectInput','meetingIdInput','attendeesInput','saveModeSelect'].forEach(function(id){
+    $(id).addEventListener('input',scheduleSave);
+  });
   document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')saveNow()});
   window.addEventListener('pagehide',saveNow);
 
@@ -1010,6 +1166,7 @@ var PRESETS = {
     if(s.project)$('projectInput').value=s.project;
     if(s.meetingId)$('meetingIdInput').value=s.meetingId;
     if(s.attendees)$('attendeesInput').value=s.attendees;
+    if(s.saveMode)$('saveModeSelect').value=s.saveMode;
     seconds=s.seconds||0;$('timer').textContent=fmt(seconds);
     page.scrollTop=page.scrollHeight;
     setStatus('Session restored',false);
