@@ -286,6 +286,12 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
           <label>API Version
             <input type="text" id="azureApiVer" value="2024-12-01-preview">
           </label>
+          <label>Whisper deployment name (for Attach Audio)
+            <input type="text" id="azureWhisperDeploy" value="whisper">
+          </label>
+          <label>Whisper API version
+            <input type="text" id="azureWhisperVer" value="2024-06-01">
+          </label>
           <label>APIM subscription key (if your gateway requires one)
             <input type="password" id="azureSubKey" autocomplete="off" placeholder="Leave blank if APIM does not require a key">
           </label>
@@ -822,6 +828,23 @@ var PRESETS = {
     var p = $('prov').value;
     var prompt = "Please provide an accurate, complete, verbatim transcript of all spoken dialogue in this audio segment. Do not summarize.";
 
+    if (p === 'azure') {
+      var abase = $('azureEndpoint').value.trim().replace(/\/+$/, '');
+      var wdep = $('azureWhisperDeploy').value.trim() || 'whisper';
+      var wver = $('azureWhisperVer').value.trim() || '2024-06-01';
+      var ext = /wav/.test(chunkPayload.mimeType) ? 'wav' : ((chunkPayload.blob && chunkPayload.blob.name && chunkPayload.blob.name.split('.').pop()) || 'mp3');
+      var afd = new FormData();
+      afd.append('file', chunkPayload.blob, 'audio.' + ext);
+      afd.append('response_format', 'json');
+      var ah = await azureHeaders();
+      delete ah['Content-Type']; // the browser sets the multipart boundary itself
+      var aRes = await fetch(abase + '/deployments/' + encodeURIComponent(wdep) + '/audio/transcriptions?api-version=' + encodeURIComponent(wver), {
+        method: 'POST', headers: ah, body: afd
+      });
+      var aData = await readAzure(aRes);
+      return (aData && aData.text) || '';
+    }
+
     if (p === 'groq') {
       var gKey = ($('groqKey').value || '').trim();
       if (!gKey) throw new Error("Add your free Groq API key under settings.");
@@ -844,7 +867,7 @@ var PRESETS = {
     var gemKey = ($('geminiKey').value || '').trim();
     if (!gemKey) throw new Error("Please enter your Gemini API key under AI settings for audio transcription.");
 
-    var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+    var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent($('geminiModel').value || defaultGemini[0]) + ':generateContent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': gemKey },
       body: JSON.stringify({
@@ -951,7 +974,13 @@ var PRESETS = {
     updateProviderView();
   });
 
-  var defaultGemini=['gemini-2.5-flash','gemini-3.8-flash','gemini-2.0-flash'];
+  var defaultGemini=['gemini-3.8-flash'];
+  function savedGeminiList(){try{var l=JSON.parse(load('ms_gemini_models')||'null');return Array.isArray(l)&&l.length?l:null}catch(e){return null}}
+  function fillGeminiModels(list,pick){
+    var gSel=$('geminiModel');gSel.innerHTML='';
+    list.forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent=m;gSel.appendChild(o)});
+    if(pick&&list.indexOf(pick)>-1)gSel.value=pick;
+  }
   function initAIConfigs(){
     var savedProv = load('ms_provider') || 'azure';
     provSelect.value = savedProv;
@@ -961,10 +990,10 @@ var PRESETS = {
     $('azureDeploy').value = load('ms_az_deploy') || 'gpt-5-mini';
     $('azureApiVer').value = load('ms_az_ver') || '2024-12-01-preview';
     $('azureSubKey').value = load('ms_az_subkey') || '';
+    $('azureWhisperDeploy').value = load('ms_az_whisper') || 'whisper';
+    $('azureWhisperVer').value = load('ms_az_whisper_ver') || '2024-06-01';
 
-    var gSel = $('geminiModel'); gSel.innerHTML = '';
-    defaultGemini.forEach(function(m){ var o=document.createElement('option');o.value=m;o.textContent=m;gSel.appendChild(o); });
-    var savedGMod = load('ms_gemini_model'); if(savedGMod) gSel.value = savedGMod;
+    fillGeminiModels(savedGeminiList()||defaultGemini, load('ms_gemini_model'));
     $('geminiKey').value = load('ms_gemini_key') || '';
 
     $('groqKey').value = load('ms_groq_key') || '';
@@ -977,12 +1006,14 @@ var PRESETS = {
     store('ms_az_deploy', $('azureDeploy').value.trim());
     store('ms_az_ver', $('azureApiVer').value.trim());
     store('ms_az_subkey', $('azureSubKey').value.trim());
+    store('ms_az_whisper', $('azureWhisperDeploy').value.trim());
+    store('ms_az_whisper_ver', $('azureWhisperVer').value.trim());
     store('ms_gemini_key', $('geminiKey').value.trim());
     store('ms_gemini_model', $('geminiModel').value);
     store('ms_groq_key', $('groqKey').value.trim());
   }
 
-  ['azureEndpoint','azureDeploy','azureApiVer','azureSubKey','geminiKey','groqKey'].forEach(function(id){
+  ['azureEndpoint','azureDeploy','azureApiVer','azureSubKey','azureWhisperDeploy','azureWhisperVer','geminiKey','groqKey'].forEach(function(id){
     $(id).addEventListener('input', saveProviderInputs);
   });
   $('geminiModel').addEventListener('change', saveProviderInputs);
@@ -1009,14 +1040,21 @@ var PRESETS = {
           })
         });
         var d = await readAzure(r);
-        alert('Azure OpenAI (gpt-5-mini via APIM) connected successfully! Response: ' + d.choices[0].message.content);
+        alert('Azure OpenAI (' + dep + ' via APIM) connected successfully! Response: ' + d.choices[0].message.content);
       } else if (p === 'gemini') {
         var k = $('geminiKey').value.trim();
         if(!k) throw new Error('Paste Gemini key first');
         var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: {'x-goog-api-key': k} });
         var d = await r.json();
         if (!r.ok) throw new Error(d.error && d.error.message || 'Key failed');
-        alert('Google Gemini verified! ' + d.models.length + ' models available.');
+        var names=(d.models||[]).filter(function(m){return /gemini/i.test(m.name)&&(m.supportedGenerationMethods||[]).indexOf('generateContent')>-1&&!/embedding|image|tts|live|robotics|computer-use/i.test(m.name)})
+          .map(function(m){return m.name.replace(/^models\//,'')}).sort().reverse();
+        if(names.length){
+          var keep=$('geminiModel').value;
+          fillGeminiModels(names, names.indexOf(keep)>-1?keep:(names.filter(function(n){return /flash/.test(n)})[0]||names[0]));
+          store('ms_gemini_models',JSON.stringify(names));saveProviderInputs();
+        }
+        alert('Google Gemini verified! ' + names.length + ' text models loaded into the Model list (' + (d.models||[]).length + ' models in total).');
       } else if (p === 'groq') {
         var gk = $('groqKey').value.trim();
         if(!gk) throw new Error('Paste Groq key first');
@@ -1118,7 +1156,7 @@ var PRESETS = {
 
     // 3. GOOGLE GEMINI
     var k = $('geminiKey').value.trim();
-    var m = $('geminiModel').value || 'gemini-2.5-flash';
+    var m = $('geminiModel').value || defaultGemini[0];
     if (!k) throw new Error('Enter your Gemini API key.');
 
     var r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(m) + ':generateContent', {
