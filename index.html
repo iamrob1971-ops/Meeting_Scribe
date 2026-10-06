@@ -61,13 +61,18 @@ header.top{grid-column:1/-1;display:flex;align-items:center;justify-content:spac
 .action-ribbon .lbl{font-size:12px;color:var(--navy);font-weight:700;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
 .chip{white-space:nowrap;font-size:12px;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 8px}
 
+.audio-queue-status{
+  padding:8px 20px;background:#EFF6FF;border-bottom:1px solid #BFDBFE;
+  font-size:12.5px;color:#1E40AF;display:none;align-items:center;gap:10px;font-weight:500;
+}
+
 .transcript-area{flex:1;display:flex;flex-direction:column;position:relative}
 textarea.page{
   flex:1;width:100%;padding:20px;border:0;outline:none;background:transparent;resize:none;
-  font-family:var(--sans);font-size:16px;line-height:1.6;color:var(--ink);min-height:280px;max-height:calc(100vh - 430px);
+  font-family:var(--sans);font-size:15px;line-height:1.6;color:var(--ink);min-height:280px;max-height:calc(100vh - 440px);
 }
 textarea.page::placeholder{color:#94A3B8;font-size:14px;line-height:1.5}
-.interim-preview{padding:4px 20px 10px;color:#64748B;font-style:italic;font-size:15px;display:none}
+.interim-preview{padding:4px 20px 10px;color:#64748B;font-style:italic;font-size:14px;display:none}
 
 .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 20px;border-top:1px solid var(--line);background:#F8FAFC;border-radius:0 0 12px 12px}
 .btn{border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:7px 12px;cursor:pointer;font-weight:500;display:inline-flex;align-items:center;gap:6px;font-size:13px;transition:.15s}
@@ -147,7 +152,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
     <div class="brand">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Meeting Scribe
-      <small>Live audio scribe &middot; Gemini meeting minutes &middot; SharePoint intake</small>
+      <small>Live audio scribe &middot; Audio file transcriber &middot; SharePoint intake</small>
     </div>
     <div class="top-r">
       <span class="pill" id="status"><span class="dot"></span><span id="statusText">Ready</span></span>
@@ -184,21 +189,37 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
       <span class="lbl">Detected Tasks:</span>
       <span class="empty" id="ribbonEmpty" style="font-size:12px;color:var(--muted)">Action items will highlight here as spoken.</span>
     </div>
+
+    <!-- Sequential Audio File Processing Banner -->
+    <div class="audio-queue-status" id="audioQueueBar">
+      <span class="spin" style="width:14px;height:14px;border-top-color:#1E40AF"></span>
+      <span id="audioQueueText">Processing audio...</span>
+    </div>
     
     <div class="transcript-area">
-      <textarea class="page" id="page" placeholder="Click the microphone to record live audio, or paste meeting transcript text / notes here..."></textarea>
+      <textarea class="page" id="page" placeholder="Click the microphone to record live audio, attach pre-recorded audio files below, or paste notes here..."></textarea>
       <div class="interim-preview" id="interimBox"></div>
     </div>
 
     <div class="actions">
+      <!-- Hidden file input for single or multiple audio files -->
+      <input type="file" id="audioFileInput" multiple accept="audio/*,.wav,.mp3,.m4a,.aac,.webm,.ogg" style="display:none">
+      
+      <button class="btn" id="attachAudioBtn" title="Upload pre-recorded audio files (MP3, M4A, WAV, WebM). Multiple files supported!">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        📁 Attach Audio
+      </button>
+
       <button class="btn primary" id="copyBtn" disabled>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
         Copy transcript
       </button>
+
       <button class="btn" id="copyPromptBtn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
         Copy prompt + transcript
       </button>
+
       <button class="btn" id="sampleBtn">Load sample</button>
       <span class="spacer"></span>
       <button class="btn" id="clearBtn" disabled>Clear</button>
@@ -240,7 +261,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
 
     <div class="actions">
       <!-- DISPATCH BUTTON 1: VIA SHARED MAILBOX PLUS-ADDRESSING -->
-      <button class="btn success" id="dispatchSpBtn" disabled title="Packages payload and opens Outlook to power.track+per_...">
+      <button class="btn success" id="dispatchSpBtn" disabled title="Packages payload and opens Outlook to power.track+scribe_...">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         <span>📤 Dispatch to SharePoint</span>
       </button>
@@ -275,15 +296,8 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
 
 <script>
 /* =====================================================================
-   =====================================================================
    SECTION 1 - SYSTEM PROMPTS (EASILY MANAGED FROM CODEBASE)
-   =====================================================================
    ===================================================================== */
-
-/* ---------------------------------------------------------------------
-   PROMPT 1: FULL OPERATIONAL MINUTES (DEFAULT CORPORATE STYLE)
-   >>> EDIT HERE TO CHANGE ACTION ITEM & TASK PARSING LOGIC <<<
-   --------------------------------------------------------------------- */
 var MEETING_MINUTES = `You are a professional enterprise project manager and technical note-taker. Below is a transcript or meeting notes from an operational/project meeting. Fix obvious speech transcription errors silently.
 
 Produce structured, professional meeting minutes in Markdown using EXACTLY these section headers:
@@ -308,10 +322,6 @@ Rules:
 - Do not invent names, dates, or specifications that were not mentioned.
 - Attribute statements to specific team members whenever mentioned in dialogue.`;
 
-/* ---------------------------------------------------------------------
-   PROMPT 2: EXECUTIVE 1-PAGE BRIEF
-   >>> EDIT HERE FOR BUSY LEADERSHIP SUMMARY <<<
-   --------------------------------------------------------------------- */
 var MEETING_BRIEF = `You are writing for an executive. Below is a meeting transcript. Clean up speech errors silently.
 
 Produce a concise brief in Markdown under 200 words:
@@ -445,30 +455,27 @@ var PRESETS = {
     this.textContent=isMax?'🗗 Minimize':'⛶ Expand';
   });
 
-  /* Live Speech with Multi-Speaker Pause Detection & Deduplication Shield */
+  /* Live Speech with Deduplication Shield & Delineation */
   var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(SR){
     recognition=new SR();recognition.continuous=true;recognition.interimResults=true;recognition.lang='en-US';
-    
     var lastChunk='';
     var lastChunkTime=0;
 
     recognition.onresult=function(e){
       var tmp='';
-      for(var i=e.resultIndex;i<e.results.length;i++){
-        var r=e.results[i];
-        if(r.isFinal){
-          var chunk=r[0].transcript.trim();
-          var now=Date.now();
+      for (var i = e.resultIndex; i < e.results.length; i++){
+        var r = e.results[i];
+        if (r.isFinal) {
+          var chunk = r[0].transcript.trim();
+          var now = Date.now();
 
-          // DEDUPLICATION SHIELD (Tuned for echo/reverberation)
-          if(chunk){
-            var currentText=page.value.trim();
+          if (chunk) {
+            var currentText = page.value.trim();
             var isDuplicate=(chunk===lastChunk&&(now-lastChunkTime<2500))||
                             (currentText.endsWith(chunk)&&(now-lastChunkTime<2500));
 
             if(!isDuplicate){
-              // 1.8s pause breaks into a new paragraph for speaker turn cadence
               var gap=lastResultAt&&(now-lastResultAt>1800);
               var sep=currentText?(gap?'\n\n':' '):'';
               page.value=currentText+sep+chunk;
@@ -495,14 +502,31 @@ var PRESETS = {
   function startUI(){
     recBtn.classList.add('on');$('meta').classList.add('on-air');scribe.classList.add('on-air');
     setStatus('Listening live',true);
+
+    // Minimalist live recording marker
+    var nowStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    var cur = page.value.trim();
+    var header = "\n\n--- [Live Microphone Recording · " + nowStr + "] ---\n";
+    page.value = cur ? (cur + header) : ("--- [Live Microphone Recording · " + nowStr + "] ---\n");
+
     if('wakeLock' in navigator){navigator.wakeLock.request('screen').then(function(l){wakeLock=l}).catch(function(){})}
     clearInterval(tick);tick=setInterval(function(){seconds++;$('timer').textContent=fmt(seconds)},1000);
+    updateUI();
   }
+
   function stopUI(){
     recBtn.classList.remove('on');scribe.classList.remove('on-air');$('meta').classList.remove('on-air');
     if(wakeLock){wakeLock.release().catch(function(){});wakeLock=null}
     clearInterval(tick);interim='';interimBox.style.display='none';
-    setStatus(page.value.trim()?'Paused':'Ready',false);updateUI();
+    
+    // Minimalist live recording closing
+    var cur = page.value.trim();
+    if (cur && !cur.endsWith("---")) {
+      page.value = cur + "\n--- [End of Live Recording] ---\n\n";
+    }
+
+    setStatus(page.value.trim()?'Paused':'Ready',false);
+    updateUI();
   }
 
   recBtn.addEventListener('click',function(){
@@ -511,7 +535,205 @@ var PRESETS = {
     wantListening=true;startUI();try{recognition.start()}catch(e){}
   });
 
-  /* Copy Buttons */
+  /* =====================================================================
+     SECTION 3 - IN-BROWSER AUDIO DOWNSAMPLER & SEQUENTIAL MULTI-FILE QUEUE
+     ===================================================================== */
+  var attachAudioBtn = $('attachAudioBtn');
+  var audioFileInput = $('audioFileInput');
+  var audioQueueBar  = $('audioQueueBar');
+  var audioQueueText = $('audioQueueText');
+
+  attachAudioBtn.addEventListener('click', function(){
+    var key = ($('key').value || '').trim();
+    if (!key) {
+      $('cfg').open = true;
+      alert('Please add your free Gemini API Key under AI Settings first before transcribing audio files.');
+      return;
+    }
+    audioFileInput.click();
+  });
+
+  // Base64 helper
+  function fileToBase64(blob) {
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onloadend = function(){ resolve(reader.result.split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function getMimeType(filename) {
+    var ext = (filename.split('.').pop() || '').toLowerCase();
+    if (ext === 'mp3') return 'audio/mp3';
+    if (ext === 'wav') return 'audio/wav';
+    if (ext === 'm4a') return 'audio/m4a';
+    if (ext === 'aac') return 'audio/aac';
+    if (ext === 'webm') return 'audio/webm';
+    if (ext === 'ogg') return 'audio/ogg';
+    return 'audio/mp3';
+  }
+
+  // Convert AudioBuffer to 16-bit Mono PCM WAV
+  function bufferToMonoWav(buffer, sampleRate) {
+    var length = buffer.length * 2 + 44;
+    var out = new DataView(new ArrayBuffer(length));
+    var channel = buffer.getChannelData(0);
+    var pos = 0;
+
+    function setUint16(data) { out.setUint16(pos, data, true); pos += 2; }
+    function setUint32(data) { out.setUint32(pos, data, true); pos += 4; }
+
+    setUint32(0x46464952); // "RIFF"
+    setUint32(length - 8);
+    setUint32(0x45564157); // "WAVE"
+
+    setUint32(0x20746d66); // "fmt "
+    setUint32(16);
+    setUint16(1);          // PCM
+    setUint16(1);          // Mono
+    setUint32(sampleRate);
+    setUint32(sampleRate * 2);
+    setUint16(2);
+    setUint16(16);
+
+    setUint32(0x61746164); // "data"
+    setUint32(length - pos - 4);
+
+    for (var i = 0; i < buffer.length; i++) {
+      var s = Math.max(-1, Math.min(1, channel[i]));
+      out.setInt16(pos, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      pos += 2;
+    }
+    return new Blob([out.buffer], { type: 'audio/wav' });
+  }
+
+  // Downsample to 16kHz mono if file is large (>20MB) or uncompressed WAV
+  async function prepareAudioPayload(file, onProgress) {
+    var isCompressed = /\.(mp3|m4a|aac|webm|ogg)$/i.test(file.name);
+    
+    // If already compressed and under 20MB, upload directly
+    if (file.size <= 20 * 1024 * 1024 && isCompressed) {
+      onProgress('Reading ' + file.name + '...');
+      var b64 = await fileToBase64(file);
+      return { base64: b64, mimeType: file.type || getMimeType(file.name) };
+    }
+
+    // Heavy WAV or large file: downsample in-browser
+    onProgress('Optimizing & compressing ' + file.name + ' in-browser (16kHz mono)...');
+    var arrayBuffer = await file.arrayBuffer();
+    var AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+    var audioCtx = new AudioCtxClass();
+    
+    try {
+      var audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      var targetRate = 16000;
+      var offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuffer.duration * targetRate), targetRate);
+      
+      var src = offlineCtx.createBufferSource();
+      src.buffer = audioBuffer;
+      src.connect(offlineCtx.destination);
+      src.start(0);
+
+      var rendered = await offlineCtx.startRendering();
+      await audioCtx.close();
+
+      var crushedWavBlob = bufferToMonoWav(rendered, targetRate);
+      var crushedBase64 = await fileToBase64(crushedWavBlob);
+      return { base64: crushedBase64, mimeType: 'audio/wav' };
+    } catch(err) {
+      // Fallback: send as raw base64 if decoding fails
+      await audioCtx.close();
+      var rawB64 = await fileToBase64(file);
+      return { base64: rawB64, mimeType: file.type || getMimeType(file.name) };
+    }
+  }
+
+  // Send single audio payload to Gemini for verbatim transcription
+  async function transcribeAudioWithGemini(audioPayload, key, model) {
+    var prompt = "Please provide an accurate, verbatim, complete transcript of all spoken dialogue in this meeting recording. Do not summarize. Maintain chronological flow.";
+
+    var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': key
+      },
+      body: JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType: audioPayload.mimeType,
+                data: audioPayload.base64
+              }
+            },
+            { text: prompt }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 8192
+        }
+      })
+    });
+
+    var data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error && data.error.message || ('Gemini Audio API Error: ' + res.status));
+    }
+    return data.candidates[0].content.parts.map(function(p){ return p.text || ''; }).join('').trim();
+  }
+
+  // Sequential Multi-File Queue Handler
+  audioFileInput.addEventListener('change', async function(e){
+    var files = Array.from(e.target.files);
+    if (!files.length) return;
+
+    var key = ($('key').value || '').trim();
+    var model = ($('model').value || 'gemini-3.8-flash').trim();
+
+    audioQueueBar.style.display = 'flex';
+    attachAudioBtn.disabled = true;
+
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+      var fileIndex = (i + 1) + ' of ' + files.length;
+      
+      try {
+        var payload = await prepareAudioPayload(file, function(statusText){
+          audioQueueText.textContent = '[' + fileIndex + '] ' + statusText;
+        });
+
+        audioQueueText.textContent = '[' + fileIndex + '] Transcribing ' + file.name + ' with Gemini...';
+        var transcript = await transcribeAudioWithGemini(payload, key, model);
+
+        // Minimalist delineation annotation
+        var timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        var annotationHeader = "\n\n--- [Audio File: " + file.name + " · Transcribed " + timeStr + "] ---\n";
+        var annotationFooter = "\n--- [End of Audio File: " + file.name + "] ---\n\n";
+
+        var current = page.value.trim();
+        page.value = (current ? (current + annotationHeader) : (annotationHeader.trimStart())) + transcript + annotationFooter;
+
+        page.scrollTop = page.scrollHeight;
+        updateUI();
+        toast('Completed ' + file.name + ' (' + fileIndex + ')');
+      } catch(err) {
+        alert('Error transcribing ' + file.name + ': ' + err.message);
+        var errHeader = "\n\n--- [Failed Audio File: " + file.name + " (" + err.message + ")] ---\n\n";
+        page.value += errHeader;
+      }
+    }
+
+    audioQueueBar.style.display = 'none';
+    attachAudioBtn.disabled = false;
+    audioFileInput.value = ''; // Reset input
+    toast('All audio files processed & appended to editor!');
+  });
+
+  /* Copy Actions */
   $('copyBtn').addEventListener('click',function(){copy(page.value).then(function(){toast('Transcript copied')})});
   
   function getFullPromptText(){
@@ -599,7 +821,7 @@ var PRESETS = {
     }
   });
 
-  /* Call AI */
+  /* Step 2: Summarize with AI */
   $('sumBtn').addEventListener('click',async function(){
     var k=$('key').value.trim(),m=$('model').value.trim();
     if(!k){$('cfg').open=true;alert('Add your free Gemini API key under AI settings.');return}
@@ -627,9 +849,8 @@ var PRESETS = {
   $('copyNotes').addEventListener('click',function(){copy(out.innerText.trim()).then(function(){toast('Notes copied')})});
 
   /* =====================================================================
-     SECTION 3 - DISPATCH TO SHAREPOINT VIA POWER.TRACK PLUS-ADDRESSING
+     SECTION 4 - DISPATCH TO SHAREPOINT VIA POWER.TRACK
      ===================================================================== */
-/* DISPATCH TO SHAREPOINT VIA POWER.TRACK +scribe_ ALIAS */
   $('dispatchSpBtn').addEventListener('click', function(){
     var rawNotes = page.value.trim();
     var summaryHtml = out.innerHTML.trim();
@@ -655,7 +876,7 @@ var PRESETS = {
       var safeProjTag = project.replace(/\s+/g, '_');
       var targetEmail = "power.track+scribe_" + encodeURIComponent(safeProjTag) + "@kencogroup.com";
       
-      // ✅ Bakes the ID into the Subject line where Outlook CANNOT corrupt it!
+      // Bakes ID into Subject where Outlook cannot mangle it
       var idTag = meetingId ? ("[ID:" + meetingId + "] ") : "";
       var subject = encodeURIComponent("[SCRIBE] " + idTag + title);
       
@@ -667,7 +888,7 @@ var PRESETS = {
     });
   });
 
-  /* DISPATCH 2: EMAIL ATTENDEES DIRECTLY */
+  /* EMAIL ATTENDEES DIRECTLY */
   $('emailAttendeesBtn').addEventListener('click', function(){
     var title = $('title').value.trim() || 'Meeting Summary';
     var project = $('projectInput').value.trim() || 'Project';
