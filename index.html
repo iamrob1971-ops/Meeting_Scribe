@@ -60,6 +60,11 @@ header.top{grid-column:1/-1;display:flex;align-items:center;justify-content:spac
 .action-ribbon .lbl{font-size:12px;color:var(--navy);font-weight:700;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
 .chip{white-space:nowrap;font-size:12px;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 8px}
 
+.restore-bar{display:none;padding:10px 20px;background:#FFFBEB;border-bottom:1px solid #FDE68A;font-size:13px;color:#92400E;align-items:center;gap:10px;flex-wrap:wrap}
+.restore-bar.show{display:flex}
+.restore-bar b{color:#78350F}
+#saveState{font-size:12px;color:#94A3B8}
+#saveState.bad{color:var(--live)}
 .audio-queue-status{
   padding:8px 20px;background:#EFF6FF;border-bottom:1px solid #BFDBFE;
   font-size:12.5px;color:#1E40AF;display:none;align-items:center;gap:10px;font-weight:500;
@@ -170,9 +175,17 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
         <div class="meta" id="meta">
           <span id="timer">0:00</span>
           <span id="words">0 words</span>
+          <span id="saveState" title="Transcript, notes and meeting details are saved in this browser as you work"></span>
           <span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
         </div>
       </div>
+    </div>
+
+    <!-- Autosave restore banner -->
+    <div class="restore-bar" id="restoreBar" role="alert">
+      <span id="restoreText">An unsaved session was found.</span>
+      <button class="btn sm" id="restoreBtn" style="margin-left:auto">Restore</button>
+      <button class="btn sm" id="discardBtn">Discard</button>
     </div>
 
     <!-- Power App Context Binding Bar -->
@@ -435,6 +448,7 @@ var PRESETS = {
     $('words').textContent=words+' words';
     ['copyBtn','clearBtn','sumBtn'].forEach(function(id){$(id).disabled=!has});
     renderRibbon();
+    scheduleSave();
   }
   page.addEventListener('input',updateUI);
 
@@ -778,7 +792,7 @@ var PRESETS = {
   });
 
   /* AI Settings & Gemini Integration */
-  var defaultModels=['gemini-3.8-flash','gemini-2.5-flash','gemini-2.0-flash'];
+  var defaultModels=['gemini-3.8-flash','gemini-2.5-flash'];
   function initModels(){
     var sel=$('model');sel.innerHTML='';
     defaultModels.forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent=m;sel.appendChild(o)});
@@ -824,6 +838,7 @@ var PRESETS = {
     $('copyNotes').disabled=!has;
     $('dispatchSpBtn').disabled=!has;
     $('emailAttendeesBtn').disabled=!has;
+    scheduleSave();
   }
 
   out.addEventListener('input', checkNotesState);
@@ -931,6 +946,94 @@ var PRESETS = {
       window.open(owaUrl, '_blank', 'noopener');
     });
   });
+
+  /* =====================================================================
+     SECTION 5 - AUTOSAVE (browser storage on this computer)
+     Saves transcript, notes and meeting details to localStorage about a
+     second after each change, and when the tab is hidden or closed.
+     On the next visit, an unfinished session is offered for restore.
+     ===================================================================== */
+  var AS_KEY='meetingScribe_autosave_v1', AS_PREV='meetingScribe_autosave_prev_v1';
+  var saveT=null, pendingPrev=null, saveReady=false;
+
+  function snapshot(){
+    var notesHtml=out.querySelector('.loading')?'':out.innerHTML.trim();
+    return {
+      text:page.value, notes:notesHtml,
+      title:$('title').value, project:$('projectInput').value,
+      meetingId:$('meetingIdInput').value, attendees:$('attendeesInput').value,
+      seconds:seconds, savedAt:Date.now()
+    };
+  }
+  function isEmpty(s){return !s||(!(s.text||'').trim()&&!(s.notes||'').trim())}
+  function timeStr(ms){return new Date(ms).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}
+  function setSaveState(msg,bad){var el=$('saveState');el.textContent=msg;el.className=bad?'bad':''}
+
+  function saveNow(){
+    clearTimeout(saveT);
+    if(!saveReady)return;
+    var snap=snapshot();
+    try{
+      if(isEmpty(snap)){localStorage.removeItem(AS_KEY);setSaveState('');return}
+      localStorage.setItem(AS_KEY,JSON.stringify(snap));
+      setSaveState('Saved '+timeStr(snap.savedAt));
+    }catch(e){
+      setSaveState('Autosave failed: browser storage full or blocked',true);
+    }
+  }
+  function scheduleSave(){
+    if(!saveReady)return;
+    clearTimeout(saveT);saveT=setTimeout(saveNow,1000);
+  }
+
+  ['title','projectInput','meetingIdInput','attendeesInput'].forEach(function(id){$(id).addEventListener('input',scheduleSave)});
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')saveNow()});
+  window.addEventListener('pagehide',saveNow);
+
+  function applySession(s){
+    page.value=s.text||'';
+    out.innerHTML=s.notes||'';
+    if(s.title)$('title').value=s.title;
+    if(s.project)$('projectInput').value=s.project;
+    if(s.meetingId)$('meetingIdInput').value=s.meetingId;
+    if(s.attendees)$('attendeesInput').value=s.attendees;
+    seconds=s.seconds||0;$('timer').textContent=fmt(seconds);
+    page.scrollTop=page.scrollHeight;
+    setStatus('Session restored',false);
+    checkNotesState();updateUI();saveNow();
+  }
+  function hideRestore(){$('restoreBar').classList.remove('show');pendingPrev=null;try{localStorage.removeItem(AS_PREV)}catch(e){}}
+
+  $('restoreBtn').addEventListener('click',function(){
+    if(!pendingPrev){hideRestore();return}
+    if(page.value.trim()&&!confirm('Replace what is on screen now with the saved session?'))return;
+    var s=pendingPrev;hideRestore();applySession(s);toast('Session restored');
+  });
+  $('discardBtn').addEventListener('click',function(){
+    if(!confirm('Discard the saved session? This cannot be undone.'))return;
+    hideRestore();toast('Saved session discarded');
+  });
+
+  /* Clear also wipes the saved copy (Clear button saves an empty session, which removes the key). */
+
+  // Startup: move any saved session aside, offer to restore it, then start saving the new one.
+  (function initAutosave(){
+    var raw=null,prevRaw=null;
+    try{raw=localStorage.getItem(AS_KEY);prevRaw=localStorage.getItem(AS_PREV)}catch(e){}
+    var s=null;
+    try{s=raw?JSON.parse(raw):(prevRaw?JSON.parse(prevRaw):null)}catch(e){s=null}
+    if(s&&!isEmpty(s)){
+      pendingPrev=s;
+      try{localStorage.setItem(AS_PREV,JSON.stringify(s));localStorage.removeItem(AS_KEY)}catch(e){}
+      var w=(s.text||'').trim()?s.text.trim().split(/\s+/).length:0;
+      var when=new Date(s.savedAt);
+      var day=when.toDateString()===new Date().toDateString()?'today':when.toLocaleDateString();
+      $('restoreText').innerHTML='<b>Unsaved session found</b> from '+day+' at '+timeStr(s.savedAt)+
+        (s.title?' &middot; '+esc(s.title):'')+' &middot; '+w+' words'+((s.notes||'').trim()?' + notes':'')+'.';
+      $('restoreBar').classList.add('show');
+    }
+    saveReady=true;
+  })();
 
   updateUI();
 })();
