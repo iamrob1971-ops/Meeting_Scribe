@@ -836,13 +836,24 @@ var PRESETS = {
       var afd = new FormData();
       afd.append('file', chunkPayload.blob, 'audio.' + ext);
       afd.append('response_format', 'json');
-      var ah = await azureHeaders();
-      delete ah['Content-Type']; // the browser sets the multipart boundary itself
-      var aRes = await fetch(abase + '/deployments/' + encodeURIComponent(wdep) + '/audio/transcriptions?api-version=' + encodeURIComponent(wver), {
-        method: 'POST', headers: ah, body: afd
-      });
-      var aData = await readAzure(aRes);
-      return (aData && aData.text) || '';
+      var aUrl = abase + '/deployments/' + encodeURIComponent(wdep) + '/audio/transcriptions?api-version=' + encodeURIComponent(wver);
+      // Whisper deployments have low per-minute limits, so wait and retry when Azure says "too many requests".
+      for (var attempt = 0; attempt < 6; attempt++) {
+        var ah = await azureHeaders();
+        delete ah['Content-Type']; // the browser sets the multipart boundary itself
+        var aRes = await fetch(aUrl, { method: 'POST', headers: ah, body: afd });
+        if (aRes.status === 429 && attempt < 5) {
+          var waitS = parseInt(aRes.headers.get('Retry-After') || '', 10) || (20 + attempt * 10);
+          for (var w = waitS; w > 0; w--) {
+            audioQueueText.textContent = 'Azure Whisper rate limit reached. Retrying in ' + w + 's (attempt ' + (attempt + 2) + ' of 6)...';
+            await new Promise(function(r){ setTimeout(r, 1000); });
+          }
+          continue;
+        }
+        var aData = await readAzure(aRes);
+        if (aData && typeof aData.text === 'string') return aData.text;
+        throw new Error('Azure returned no transcript. Check that the APIM policy sends /audio/transcriptions to your Whisper deployment.');
+      }
     }
 
     if (p === 'groq') {
