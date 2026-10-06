@@ -32,7 +32,7 @@ header.top{grid-column:1/-1;display:flex;align-items:center;justify-content:spac
 .card{background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
 .scribe{display:flex;flex-direction:column;min-height:calc(100vh - 90px)}
 .scribe-head{display:flex;align-items:center;gap:16px;padding:16px 20px;border-bottom:1px solid var(--line)}
-.rec{position:relative;flex:none;width:58px;height:58px;border-radius:50%;border:0;background:var(--navy);color:#fff;cursor:pointer;display:grid;place-items:center;transition:background .15s}
+.rec{position:relative;flex:none;width:58px;height:58px;border-radius:50%;border:0;background:var(--navy);color:#fff;cursor:grid;place-items:center;transition:background .15s}
 .rec:hover{background:var(--blue)}
 .rec svg{width:24px;height:24px}
 .rec .ic-stop{display:none}
@@ -52,9 +52,9 @@ header.top{grid-column:1/-1;display:flex;align-items:center;justify-content:spac
 .on-air .bars i:nth-child(4){animation-delay:.45s}.on-air .bars i:nth-child(5){animation-delay:.6s}
 @keyframes bar{0%,100%{height:4px}50%{height:16px}}
 
-/* Context Bar */
-.ctx-bar{padding:10px 20px;border-bottom:1px solid var(--line);background:#F8FAFC;display:flex;gap:10px;align-items:center;font-size:13px;flex-wrap:wrap}
-.ctx-bar input{border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:13px;background:#fff}
+/* Context Bar with Append Mode Toggle */
+.ctx-bar{padding:10px 20px;border-bottom:1px solid var(--line);background:#F8FAFC;display:flex;gap:12px;align-items:center;font-size:13px;flex-wrap:wrap}
+.ctx-bar input,.ctx-bar select{border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:13px;background:#fff}
 
 .action-ribbon{padding:8px 20px;border-bottom:1px solid var(--line);background:#F8FAFC;display:flex;gap:8px;align-items:center;min-height:44px;overflow-x:auto}
 .action-ribbon .lbl{font-size:12px;color:var(--navy);font-weight:700;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
@@ -65,6 +65,7 @@ header.top{grid-column:1/-1;display:flex;align-items:center;justify-content:spac
 .restore-bar b{color:#78350F}
 #saveState{font-size:12px;color:#94A3B8}
 #saveState.bad{color:var(--live)}
+
 .audio-queue-status{
   padding:8px 20px;background:#EFF6FF;border-bottom:1px solid #BFDBFE;
   font-size:12.5px;color:#1E40AF;display:none;align-items:center;gap:10px;font-weight:500;
@@ -175,7 +176,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
         <div class="meta" id="meta">
           <span id="timer">0:00</span>
           <span id="words">0 words</span>
-          <span id="saveState" title="Transcript, notes and meeting details are saved in this browser as you work"></span>
+          <span id="saveState" title="Session automatically saved locally"></span>
           <span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
         </div>
       </div>
@@ -188,10 +189,20 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
       <button class="btn sm" id="discardBtn">Discard</button>
     </div>
 
-    <!-- Power App Context Binding Bar -->
+    <!-- Power App Context Binding Bar with Append Mode Toggle -->
     <div class="ctx-bar">
-      <span><b>Project:</b> <input type="text" id="projectInput" placeholder="Project Name..." style="width:200px"></span>
-      <span><b>Meeting ID:</b> <input type="text" id="meetingIdInput" placeholder="Auto / New" style="width:80px" title="Personal_Meetings SharePoint Row ID"></span>
+      <span><b>Project:</b> <input type="text" id="projectInput" placeholder="Project Name..." style="width:190px"></span>
+      <span><b>Meeting ID:</b> <input type="text" id="meetingIdInput" placeholder="Auto / New" style="width:75px" title="Personal_Meetings SharePoint Row ID"></span>
+      
+      <!-- APPEND / REPLACE MODE SELECTOR -->
+      <span>
+        <b>Save Mode:</b>
+        <select id="saveModeSelect" style="font-weight:600;color:var(--navy)">
+          <option value="APPEND" selected>➕ Append to Meeting (Default)</option>
+          <option value="REPLACE">⚠️ Replace / Overwrite Meeting</option>
+        </select>
+      </span>
+
       <span style="flex:1;min-width:240px;display:flex;align-items:center;gap:6px">
         <b>Attendees:</b> <input type="text" id="attendeesInput" placeholder="Emails separated by semicolons..." style="flex:1">
       </span>
@@ -308,7 +319,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
 
 <script>
 /* =====================================================================
-   SECTION 1 - SYSTEM PROMPTS (EASILY MANAGED FROM CODEBASE)
+   SECTION 1 - SYSTEM PROMPTS
    ===================================================================== */
 var MEETING_MINUTES = `You are a professional enterprise project manager and technical note-taker. Below is a transcript or meeting notes from an operational/project meeting. Fix obvious speech transcription errors silently.
 
@@ -416,12 +427,21 @@ var PRESETS = {
   $('instCancel').addEventListener('click',function(){dlg.close()});
   $('dlgX').addEventListener('click',function(){dlg.close()});
 
-  /* URL Parameters Ingestion (from Power App Launch) */
-  var qParams=new URLSearchParams(window.location.search);
-  if(qParams.get('title')) $('title').value=qParams.get('title');
-  if(qParams.get('project')) $('projectInput').value=qParams.get('project');
-  if(qParams.get('meetingId')) $('meetingIdInput').value=qParams.get('meetingId');
-  if(qParams.get('attendees')) $('attendeesInput').value=qParams.get('attendees');
+  /* Case-Insensitive URL Parameter Reader (Power Apps Launch Compatibility) */
+  function getUrlParam(name) {
+    var params = new URLSearchParams(window.location.search);
+    for (var pair of params.entries()) {
+      if (pair[0].toLowerCase() === name.toLowerCase()) {
+        return pair[1];
+      }
+    }
+    return '';
+  }
+
+  if(getUrlParam('title')) $('title').value = getUrlParam('title');
+  if(getUrlParam('project')) $('projectInput').value = getUrlParam('project');
+  if(getUrlParam('meetingId')) $('meetingIdInput').value = getUrlParam('meetingId');
+  if(getUrlParam('attendees')) $('attendeesInput').value = getUrlParam('attendees');
 
   /* Action Item Phrase Detection (Ribbon) */
   var actRe=/\b(action item|follow up|follow-up|next step|deadline|due by|due on|i'll|i will|we will|we need to|needs to|need to|can you|could you|please send|assigned to|will own|by monday|by tuesday|by wednesday|by thursday|by friday|end of week|end of day)\b/i;
@@ -506,13 +526,12 @@ var PRESETS = {
       else{interimBox.style.display='none'}
     };
 
-    // ✅ FIX 2: Pause Guard inside timer
     recognition.onend=function(){
       running=false;
       if(wantListening){
         clearTimeout(restartT);
         restartT=setTimeout(function(){
-          if(!wantListening) return; // Guard against zombie mic restarts
+          if(!wantListening) return;
           try{recognition.start()}catch(e){}
         },300);
       }else{
@@ -549,12 +568,11 @@ var PRESETS = {
     updateUI();
   }
 
-  // ✅ FIX 2: Clear restart timer immediately on pause click
   recBtn.addEventListener('click',function(){
     if(!recognition)return;
     if(wantListening){
       wantListening=false;
-      clearTimeout(restartT); // Kills pending restart timer
+      clearTimeout(restartT);
       recognition.stop();
       stopUI();
       return;
@@ -564,7 +582,6 @@ var PRESETS = {
 
   /* =====================================================================
      SECTION 3 - IN-BROWSER 5-MIN AUDIO SLICER & RECURSIVE CHUNK QUEUE
-     (Fixes 20MB Payload Wall + 8,192 Token Output Ceiling)
      ===================================================================== */
   var attachAudioBtn = $('attachAudioBtn');
   var audioFileInput = $('audioFileInput');
@@ -623,7 +640,6 @@ var PRESETS = {
     return new Blob([out.buffer], { type: 'audio/wav' });
   }
 
-  // ✅ FIX 1: Decodes & Slices Audio into 5-minute (300s) 16kHz Mono Chunks
   async function sliceAndDownsampleAudio(file, onProgress) {
     onProgress('Decoding ' + file.name + ' in browser memory...');
     var arrayBuffer = await file.arrayBuffer();
@@ -649,7 +665,6 @@ var PRESETS = {
         var src = offlineCtx.createBufferSource();
         src.buffer = audioBuffer;
         src.connect(offlineCtx.destination);
-        // Offset playback into buffer
         src.start(0, startSec, sliceLengthSec);
 
         var rendered = await offlineCtx.startRendering();
@@ -669,7 +684,6 @@ var PRESETS = {
       return chunkPayloads;
     } catch(err) {
       await audioCtx.close();
-      // Fallback if decoding fails: return raw file as single chunk
       var rawB64 = await fileToBase64(file);
       return [{
         base64: rawB64,
@@ -717,13 +731,13 @@ var PRESETS = {
     return data.candidates[0].content.parts.map(function(p){ return p.text || ''; }).join('').trim();
   }
 
-  // Multi-File & Multi-Chunk Queue Processor
   audioFileInput.addEventListener('change', async function(e){
     var files = Array.from(e.target.files);
     if (!files.length) return;
 
     var key = ($('key').value || '').trim();
-    var model = ($('model').value || 'gemini-3.8-flash').trim();
+    // Default to stable 2.5-flash for audio to prevent 503 high demand issues
+    var model = ($('model').value || 'gemini-2.5-flash').trim();
 
     audioQueueBar.style.display = 'flex';
     attachAudioBtn.disabled = true;
@@ -763,7 +777,7 @@ var PRESETS = {
     audioQueueBar.style.display = 'none';
     attachAudioBtn.disabled = false;
     audioFileInput.value = '';
-    toast('All audio files and slices transcribed successfully!');
+    toast('All audio files processed & appended to editor!');
   });
 
   /* Copy Actions */
@@ -787,12 +801,13 @@ var PRESETS = {
     if(!confirm('Clear meeting transcript and notes?'))return;
     page.value='';interim='';seconds=0;lastResultAt=0;$('timer').textContent='0:00';
     out.innerHTML='';
+    hideRestore();
     checkNotesState();
     updateUI();
   });
 
   /* AI Settings & Gemini Integration */
-  var defaultModels=['gemini-3.8-flash','gemini-2.5-flash'];
+  var defaultModels=['gemini-2.5-flash','gemini-3.8-flash','gemini-2.0-flash'];
   function initModels(){
     var sel=$('model');sel.innerHTML='';
     defaultModels.forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent=m;sel.appendChild(o)});
@@ -813,7 +828,7 @@ var PRESETS = {
       var names=(d.models||[]).filter(function(m){return /gemini/i.test(m.name)&&(m.supportedGenerationMethods||[]).includes('generateContent')&&!/image|audio|robotics/i.test(m.name)}).map(function(m){return m.name.replace(/^models\//,'')});
       var sel=$('model');sel.innerHTML='';
       names.forEach(function(n){var o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o)});
-      if(names.includes('gemini-3.8-flash'))sel.value='gemini-3.8-flash';
+      if(names.includes('gemini-2.5-flash'))sel.value='gemini-2.5-flash';
       toast('Verified! '+names.length+' models available.');
     }catch(e){alert('Verification failed: '+e.message)}
   });
@@ -885,7 +900,6 @@ var PRESETS = {
   /* =====================================================================
      SECTION 4 - DISPATCH TO SHAREPOINT VIA POWER.TRACK
      ===================================================================== */
-  // ✅ FIX 3: Extracts Action Items ONLY (Stops at next ## heading)
   function extractActionItemsOnly(text) {
     if (!text) return "";
     var match = text.match(/(?:^|\n)\s*##\s*(?:Action Items|Tasks|Top Action Items)[\s\S]*?(?=(?:\n\s*##\s*|\n\s*###\s*|$))/i);
@@ -903,8 +917,8 @@ var PRESETS = {
     var project = $('projectInput').value.trim() || 'UNASSIGNED';
     var meetingId = $('meetingIdInput').value.trim() || '';
     var attendees = $('attendeesInput').value.trim() || '';
+    var saveMode = $('saveModeSelect').value || 'APPEND';
 
-    // Precise extraction: does not leak discussion highlights or risks
     var actionPortion = extractActionItemsOnly(summaryText);
 
     var payload = 
@@ -920,8 +934,10 @@ var PRESETS = {
       var safeProjTag = project.replace(/\s+/g, '_');
       var targetEmail = "power.track+scribe_" + encodeURIComponent(safeProjTag) + "@kencogroup.com";
       
+      // ✅ Bakes ID and MODE into Subject line
       var idTag = meetingId ? ("[ID:" + meetingId + "] ") : "";
-      var subject = encodeURIComponent("[SCRIBE] " + idTag + title);
+      var modeTag = "[MODE:" + saveMode + "] ";
+      var subject = encodeURIComponent("[SCRIBE] " + idTag + modeTag + title);
       
       var owaUrl = "https://outlook.office.com/mail/deeplink/compose?to=" + targetEmail + "&subject=" + subject;
 
@@ -948,10 +964,7 @@ var PRESETS = {
   });
 
   /* =====================================================================
-     SECTION 5 - AUTOSAVE (browser storage on this computer)
-     Saves transcript, notes and meeting details to localStorage about a
-     second after each change, and when the tab is hidden or closed.
-     On the next visit, an unfinished session is offered for restore.
+     SECTION 5 - AUTOSAVE ENGINE
      ===================================================================== */
   var AS_KEY='meetingScribe_autosave_v1', AS_PREV='meetingScribe_autosave_prev_v1';
   var saveT=null, pendingPrev=null, saveReady=false;
@@ -978,7 +991,7 @@ var PRESETS = {
       localStorage.setItem(AS_KEY,JSON.stringify(snap));
       setSaveState('Saved '+timeStr(snap.savedAt));
     }catch(e){
-      setSaveState('Autosave failed: browser storage full or blocked',true);
+      setSaveState('Storage full',true);
     }
   }
   function scheduleSave(){
@@ -1006,17 +1019,14 @@ var PRESETS = {
 
   $('restoreBtn').addEventListener('click',function(){
     if(!pendingPrev){hideRestore();return}
-    if(page.value.trim()&&!confirm('Replace what is on screen now with the saved session?'))return;
+    if(page.value.trim()&&!confirm('Replace current screen with saved session?'))return;
     var s=pendingPrev;hideRestore();applySession(s);toast('Session restored');
   });
   $('discardBtn').addEventListener('click',function(){
-    if(!confirm('Discard the saved session? This cannot be undone.'))return;
-    hideRestore();toast('Saved session discarded');
+    if(!confirm('Discard saved session?'))return;
+    hideRestore();toast('Session discarded');
   });
 
-  /* Clear also wipes the saved copy (Clear button saves an empty session, which removes the key). */
-
-  // Startup: move any saved session aside, offer to restore it, then start saving the new one.
   (function initAutosave(){
     var raw=null,prevRaw=null;
     try{raw=localStorage.getItem(AS_KEY);prevRaw=localStorage.getItem(AS_PREV)}catch(e){}
