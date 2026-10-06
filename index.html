@@ -160,6 +160,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
       <small>Live scribe &middot; Azure AI &amp; Gemini &middot; SharePoint intake</small>
     </div>
     <div class="top-r">
+      <button class="btn sm" id="authBtn" style="display:none" type="button">Sign in</button>
       <span class="pill" id="status"><span class="dot"></span><span id="statusText">Ready</span></span>
     </div>
   </header>
@@ -285,6 +286,9 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
           <label>API Version
             <input type="text" id="azureApiVer" value="2024-12-01-preview">
           </label>
+          <label>APIM subscription key (if your gateway requires one)
+            <input type="password" id="azureSubKey" autocomplete="off" placeholder="Leave blank if APIM does not require a key">
+          </label>
         </div>
 
         <div id="geminiCfg" style="display:none">
@@ -352,7 +356,21 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
 </dialog>
 <div class="toast" id="toast" role="status"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@4.30.0/lib/msal-browser.min.js"></script>
 <script>
+/* =====================================================================
+   SECTION 0 - ENTRA SIGN-IN (used by the Azure OpenAI / APIM provider)
+   Fill these in from your app registration. They are IDs, not secrets,
+   so they are safe in a public GitHub repo. Leave clientId empty to turn
+   sign-in off (the page then calls APIM without a token).
+   ===================================================================== */
+var ENTRA = {
+  tenantId: '',          // Directory (tenant) ID
+  clientId: '',          // Application (client) ID of the Meeting Scribe app registration
+  scope: '',             // Leave empty to use api://<clientId>/access_as_user
+  redirectPage: 'auth.html' // Blank page in the same GitHub folder; register its full URL as an SPA redirect URI
+};
+
 /* =====================================================================
    SECTION 1 - SYSTEM PROMPTS
    ===================================================================== */
@@ -412,6 +430,90 @@ var PRESETS = {
 
   function toast(msg){var t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(function(){t.classList.remove('show')},2800)}
   function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+
+  /* ---------- Entra sign-in (MSAL) ---------- */
+  var msalApp=null, msalReady=null, authBusy=null;
+  function entraOn(){return !!(ENTRA.clientId&&ENTRA.tenantId)}
+  function entraScope(){return ENTRA.scope||('api://'+ENTRA.clientId+'/access_as_user')}
+  function entraRedirect(){return new URL(ENTRA.redirectPage||'',location.href).href}
+  function initMsal(){
+    if(msalReady)return msalReady;
+    if(!entraOn())return Promise.resolve(null);
+    if(!window.msal)return Promise.reject(new Error('The Microsoft sign-in library did not load. Check your connection and reload the page.'));
+    msalApp=new msal.PublicClientApplication({
+      auth:{clientId:ENTRA.clientId,authority:'https://login.microsoftonline.com/'+ENTRA.tenantId,redirectUri:entraRedirect()},
+      cache:{cacheLocation:'localStorage'}
+    });
+    msalReady=msalApp.initialize().then(function(){return msalApp.handleRedirectPromise()}).then(function(){
+      var accts=msalApp.getAllAccounts().filter(function(a){return a.tenantId===ENTRA.tenantId});
+      if(accts.length&&!msalApp.getActiveAccount())msalApp.setActiveAccount(accts[0]);
+      renderAuth();return msalApp;
+    });
+    return msalReady;
+  }
+  function authError(e){
+    var code=(e&&e.errorCode)||'';
+    if(code==='user_cancelled')return 'Sign-in was cancelled.';
+    if(code==='popup_window_error'||code==='empty_window_error')return 'The sign-in window was blocked. Allow pop-ups for this site, then try again.';
+    if(code==='interaction_in_progress')return 'A sign-in window is already open. Finish or close it, then try again.';
+    return (e&&e.message)||String(e);
+  }
+  function signIn(){
+    if(authBusy)return authBusy;
+    authBusy=initMsal().then(function(){
+      return msalApp.loginPopup({scopes:[entraScope()],prompt:'select_account'});
+    }).then(function(r){msalApp.setActiveAccount(r.account);renderAuth();return r.account})
+      .finally(function(){authBusy=null});
+    return authBusy;
+  }
+  async function getAzureToken(){
+    if(!entraOn())return null;
+    await initMsal();
+    var acct=msalApp.getActiveAccount()||await signIn();
+    try{
+      return (await msalApp.acquireTokenSilent({scopes:[entraScope()],account:acct})).accessToken;
+    }catch(e){
+      if(!(e instanceof msal.InteractionRequiredAuthError))throw e;
+      if(authBusy)await authBusy;
+      authBusy=msalApp.acquireTokenPopup({scopes:[entraScope()],account:acct});
+      try{return (await authBusy).accessToken}finally{authBusy=null}
+    }
+  }
+  async function azureHeaders(){
+    var h={'Content-Type':'application/json'};
+    var sk=($('azureSubKey')&&$('azureSubKey').value||'').trim();
+    if(sk)h['Ocp-Apim-Subscription-Key']=sk;
+    var t=await getAzureToken();
+    if(t)h.Authorization='Bearer '+t;
+    return h;
+  }
+  async function readAzure(res){
+    var data=null;try{data=await res.json()}catch(e){}
+    if(res.ok)return data;
+    if(res.status===401)throw new Error(entraOn()?'Not authorized. Sign in with your work account (top right). If you are already signed in, your account may not be assigned to this app.':'Not authorized. Check the APIM subscription key under AI settings.');
+    if(res.status===429)throw new Error('Rate limit reached. Wait a minute and try again.');
+    throw new Error((data&&data.error&&data.error.message)||(data&&data.message)||('Azure APIM HTTP '+res.status));
+  }
+  function renderAuth(){
+    var b=$('authBtn');
+    if(!entraOn()){b.style.display='none';return}
+    b.style.display='';
+    var a=msalApp&&msalApp.getActiveAccount();
+    b.textContent=a?('Signed in: '+(a.name||a.username)):'Sign in';
+    b.title=a?('Signed in as '+a.username+'. Click to sign out.'):'Sign in with your work account to use the Azure AI provider';
+  }
+  $('authBtn').addEventListener('click',async function(){
+    try{
+      await initMsal();
+      var a=msalApp.getActiveAccount();
+      if(a){
+        if(!confirm('Sign out '+a.username+' from Meeting Scribe?'))return;
+        await msalApp.clearCache({account:a});msalApp.setActiveAccount(null);renderAuth();toast('Signed out');
+      }else{await signIn();toast('Signed in')}
+    }catch(e){if(e&&e.errorCode==='user_cancelled')return;alert('Sign-in problem: '+authError(e))}
+  });
+  renderAuth();
+  if(entraOn())initMsal().catch(function(e){console.warn('MSAL init',e)});
   function copy(text){
     if(navigator.clipboard&&window.isSecureContext){return navigator.clipboard.writeText(text)}
     return new Promise(function(res,rej){
@@ -816,6 +918,7 @@ var PRESETS = {
     var text=getInstr()+'\n\n';
     if(proj) text+='Project: '+proj+'\n';
     if(title) text+='Meeting Title: '+title+'\n';
+    text+='Meeting Date: '+new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})+' (use this to turn relative deadlines such as "by Thursday" into dates)\n';
     text+='\nMeeting Transcript / Raw Notes:\n'+(page.value.trim()||'(No transcript entered yet)');
     return text;
   }
@@ -857,6 +960,7 @@ var PRESETS = {
     $('azureEndpoint').value = load('ms_az_endpoint') || 'https://kenco-transcription-apim.azure-api.net/openai';
     $('azureDeploy').value = load('ms_az_deploy') || 'gpt-5-mini';
     $('azureApiVer').value = load('ms_az_ver') || '2024-12-01-preview';
+    $('azureSubKey').value = load('ms_az_subkey') || '';
 
     var gSel = $('geminiModel'); gSel.innerHTML = '';
     defaultGemini.forEach(function(m){ var o=document.createElement('option');o.value=m;o.textContent=m;gSel.appendChild(o); });
@@ -872,12 +976,13 @@ var PRESETS = {
     store('ms_az_endpoint', $('azureEndpoint').value.trim());
     store('ms_az_deploy', $('azureDeploy').value.trim());
     store('ms_az_ver', $('azureApiVer').value.trim());
+    store('ms_az_subkey', $('azureSubKey').value.trim());
     store('ms_gemini_key', $('geminiKey').value.trim());
     store('ms_gemini_model', $('geminiModel').value);
     store('ms_groq_key', $('groqKey').value.trim());
   }
 
-  ['azureEndpoint','azureDeploy','azureApiVer','geminiKey','groqKey'].forEach(function(id){
+  ['azureEndpoint','azureDeploy','azureApiVer','azureSubKey','geminiKey','groqKey'].forEach(function(id){
     $(id).addEventListener('input', saveProviderInputs);
   });
   $('geminiModel').addEventListener('change', saveProviderInputs);
@@ -897,14 +1002,13 @@ var PRESETS = {
 
         var r = await fetch(testUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: await azureHeaders(),
           body: JSON.stringify({
             messages: [{ role: 'user', content: 'Say OK' }],
-            max_completion_tokens: 10
+            max_completion_tokens: 200
           })
         });
-        var d = await r.json();
-        if (!r.ok) throw new Error(d.error && d.error.message || ('Azure APIM HTTP ' + r.status));
+        var d = await readAzure(r);
         alert('Azure OpenAI (gpt-5-mini via APIM) connected successfully! Response: ' + d.choices[0].message.content);
       } else if (p === 'gemini') {
         var k = $('geminiKey').value.trim();
@@ -922,7 +1026,7 @@ var PRESETS = {
         alert('Groq verified successfully!');
       }
     } catch(e) {
-      alert('Connection Test Failed: ' + e.message);
+      alert('Connection Test Failed: ' + authError(e));
     }
   });
 
@@ -977,7 +1081,7 @@ var PRESETS = {
 
       var res = await fetch(targetUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await azureHeaders(),
         body: JSON.stringify({
           messages: [
             { role: 'system', content: sys },
@@ -986,8 +1090,7 @@ var PRESETS = {
           max_completion_tokens: 8192
         })
       });
-      var data = await res.json();
-      if (!res.ok) throw new Error(data.error && data.error.message || ('Azure APIM Error: ' + res.status));
+      var data = await readAzure(res);
       return data.choices[0].message.content;
     }
 
