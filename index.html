@@ -66,6 +66,8 @@ header.top{grid-column:1/-1;display:flex;align-items:center;justify-content:spac
 #saveState{font-size:12px;color:#94A3B8}
 #saveState.bad{color:var(--live)}
 
+.failed-audio{padding:8px 20px;background:#FEF2F2;border-bottom:1px solid #FECACA;font-size:12.5px;color:#991B1B;display:none;align-items:center;gap:10px;flex-wrap:wrap}
+.failed-audio small{display:block;color:#B91C1C;opacity:.85}
 .audio-queue-status{
   padding:8px 20px;background:#EFF6FF;border-bottom:1px solid #BFDBFE;
   font-size:12.5px;color:#1E40AF;display:none;align-items:center;gap:10px;font-weight:500;
@@ -219,6 +221,13 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
       <span class="spin" style="width:14px;height:14px;border-top-color:#1E40AF"></span>
       <span id="audioQueueText">Processing audio...</span>
     </div>
+
+    <!-- Failed audio slices kept for retry -->
+    <div class="failed-audio" id="failedBar" role="status">
+      <span id="failedText"></span>
+      <button class="btn sm" id="retryFailedBtn" style="margin-left:auto" type="button">Retry failed audio</button>
+      <button class="btn sm" id="discardFailedBtn" type="button">Discard</button>
+    </div>
     
     <div class="transcript-area">
       <textarea class="page" id="page" placeholder="Click the microphone to record live audio, attach pre-recorded audio files below, or paste notes here..."></textarea>
@@ -291,6 +300,9 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
           </label>
           <label>Whisper API version
             <input type="text" id="azureWhisperVer" value="2024-06-01">
+          </label>
+          <label>Whisper requests per minute (your deployment's limit)
+            <input type="text" id="azureWhisperRpm" value="3" inputmode="numeric">
           </label>
           <label>APIM subscription key (if your gateway requires one)
             <input type="password" id="azureSubKey" autocomplete="off" placeholder="Leave blank if APIM does not require a key">
@@ -610,6 +622,7 @@ var PRESETS = {
     var words=val?val.split(/\s+/).length:0;
     $('words').textContent=words+' words';
     ['copyBtn','clearBtn','sumBtn'].forEach(function(id){$(id).disabled=!has});
+    if(typeof audioBusy!=='undefined'&&audioBusy){$('sumBtn').disabled=true;$('clearBtn').disabled=true}
     renderRibbon();
     scheduleSave();
   }
@@ -726,6 +739,7 @@ var PRESETS = {
   /* =====================================================================
      SECTION 3 - IN-BROWSER 5-MIN AUDIO SLICER & RECURSIVE CHUNK QUEUE
      ===================================================================== */
+  var audioBusy = false; // true while audio files are being transcribed
   var attachAudioBtn = $('attachAudioBtn');
   var audioFileInput = $('audioFileInput');
   var audioQueueBar  = $('audioQueueBar');
@@ -776,7 +790,10 @@ var PRESETS = {
       var audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
       var totalDuration = audioBuffer.duration;
       var targetRate = 16000;
-      var chunkDuration = 300; // 5-minute slices
+      // Slice length: 16 kHz mono WAV is about 1.9 MB per minute.
+      // Azure Whisper accepts 25 MB per request, so 11-minute slices (~21 MB) mean fewer requests
+      // against its low per-minute limit. Gemini gets 5-minute slices to stay under its ~20 MB inline limit.
+      var chunkDuration = ($('prov').value === 'azure') ? 660 : 300;
       var totalChunks = Math.ceil(totalDuration / chunkDuration);
       var chunkPayloads = [];
 
@@ -824,6 +841,7 @@ var PRESETS = {
   }
 
   // Multi-Provider Audio Transcription
+  var lastWhisperAt = 0;
   async function transcribeChunkWithActiveProvider(chunkPayload) {
     var p = $('prov').value;
     var prompt = "Please provide an accurate, complete, verbatim transcript of all spoken dialogue in this audio segment. Do not summarize.";
@@ -839,9 +857,19 @@ var PRESETS = {
       var aUrl = abase + '/deployments/' + encodeURIComponent(wdep) + '/audio/transcriptions?api-version=' + encodeURIComponent(wver);
       // Whisper deployments have low per-minute limits, so wait and retry when Azure says "too many requests".
       for (var attempt = 0; attempt < 6; attempt++) {
+        // Pace requests to stay under the deployment's requests-per-minute limit.
+        var rpm = Math.max(1, parseInt($('azureWhisperRpm').value, 10) || 3);
+        var spacing = Math.ceil(60000 / rpm) + 1000;
+        var waitMs = spacing - (Date.now() - lastWhisperAt);
+        while (waitMs > 0) {
+          audioQueueText.textContent = 'Pacing for the Whisper limit (' + rpm + ' per minute): next slice in ' + Math.ceil(waitMs / 1000) + 's...';
+          await new Promise(function(r){ setTimeout(r, Math.min(1000, waitMs)); });
+          waitMs = spacing - (Date.now() - lastWhisperAt);
+        }
         var ah = await azureHeaders();
         delete ah['Content-Type']; // the browser sets the multipart boundary itself
         var aRes = await fetch(aUrl, { method: 'POST', headers: ah, body: afd });
+        lastWhisperAt = Date.now(); // measured from when Azure finished the last request
         if (aRes.status === 429 && attempt < 5) {
           var waitS = parseInt(aRes.headers.get('Retry-After') || '', 10) || (20 + attempt * 10);
           for (var w = waitS; w > 0; w--) {
@@ -898,50 +926,132 @@ var PRESETS = {
     return data.candidates[0].content.parts.map(function(p){ return p.text || ''; }).join('').trim();
   }
 
+  /* ---------- Failed audio slices: kept in IndexedDB so they survive a reload ---------- */
+  var FA_DB='meetingScribe_failedAudio_v1', FA_STORE='slices';
+  function faOpen(){
+    return new Promise(function(res,rej){
+      if(!window.indexedDB){rej(new Error('Browser storage not available'));return}
+      var r=indexedDB.open(FA_DB,1);
+      r.onupgradeneeded=function(){r.result.createObjectStore(FA_STORE,{keyPath:'id'})};
+      r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)};
+    });
+  }
+  function faTx(mode,fn){
+    return faOpen().then(function(db){
+      return new Promise(function(res,rej){
+        var tx=db.transaction(FA_STORE,mode),req=fn(tx.objectStore(FA_STORE));
+        tx.oncomplete=function(){db.close();res(req?req.result:undefined)};
+        tx.onerror=function(){db.close();rej(tx.error)};tx.onabort=function(){db.close();rej(tx.error)};
+      });
+    });
+  }
+  function faAll(){return faTx('readonly',function(st){return st.getAll()}).then(function(r){return r||[]}).catch(function(){return []})}
+  function faPut(rec){return faTx('readwrite',function(st){return st.put(rec)})}
+  function faDel(id){return faTx('readwrite',function(st){return st.delete(id)})}
+  function faClear(){return faTx('readwrite',function(st){return st.clear()})}
+
+  function failMarker(rec){return '--- [Failed Audio: '+rec.fileName+' ('+rec.label+') · ref '+rec.id+' · use "Retry failed audio"] ---'}
+  async function renderFailedBar(){
+    var all=await faAll(), bar=$('failedBar');
+    if(!all.length){bar.style.display='none';return}
+    all.sort(function(x,y){return y.savedAt-x.savedAt});
+    var names={};all.forEach(function(r){names[r.fileName]=1});
+    $('failedText').innerHTML='<b>'+all.length+' audio slice'+(all.length>1?'s':'')+' failed</b> ('+esc(Object.keys(names).join(', '))+
+      '). Saved in this browser, so you can retry without re-attaching. Retry uses the provider selected in AI settings.'+
+      '<small>Last error: '+esc(String(all[0].error||'unknown').slice(0,160))+'</small>';
+    bar.style.display='flex';
+  }
+  function insertTranscript(fileName,chunk,transcript,marker){
+    var timeStr=new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    var header="--- [Audio: "+fileName+" ("+chunk.label+") · Transcribed "+timeStr+"] ---\n";
+    var footer="\n--- [End Slice: "+chunk.label+"] ---";
+    if(marker&&page.value.indexOf(marker)>-1){
+      page.value=page.value.replace(marker,header+transcript+footer);   // put it back where the failed slice was
+    }else{
+      var current=page.value.trim();
+      page.value=(current?current+"\n\n":"")+header+transcript+footer+"\n";
+    }
+    page.scrollTop=page.scrollHeight;updateUI();
+  }
+  async function keepFailed(fileName,chunk,err){
+    var rec={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),fileName:fileName,label:chunk.label,
+      chunkIndex:chunk.chunkIndex,totalChunks:chunk.totalChunks,mimeType:chunk.mimeType,blob:chunk.blob,
+      error:String((err&&err.message)||err),savedAt:Date.now()};
+    var current=page.value.trim();
+    page.value=(current?current+"\n\n":"")+failMarker(rec)+"\n";updateUI();
+    try{await faPut(rec)}catch(e2){page.value+="(This slice could not be saved for retry: "+e2.message+". Re-attach the file to try again.)\n"}
+  }
+
   audioFileInput.addEventListener('change', async function(e){
     var files = Array.from(e.target.files);
     if (!files.length) return;
-
     audioQueueBar.style.display = 'flex';
-    attachAudioBtn.disabled = true;
-
-    for (var f = 0; f < files.length; f++) {
-      var file = files[f];
-      var fileLabel = 'File ' + (f + 1) + '/' + files.length + ' (' + file.name + ')';
-
-      try {
-        var chunks = await sliceAndDownsampleAudio(file, function(statusText){
-          audioQueueText.textContent = '[' + fileLabel + '] ' + statusText;
-        });
-
+    attachAudioBtn.disabled = true;$('retryFailedBtn').disabled = true;
+    audioBusy = true;updateUI();
+    var failed = 0;
+    try{
+      for (var f = 0; f < files.length; f++) {
+        var file = files[f];
+        var fileLabel = 'File ' + (f + 1) + '/' + files.length + ' (' + file.name + ')';
+        var chunks;
+        try{
+          chunks = await sliceAndDownsampleAudio(file, function(statusText){ audioQueueText.textContent = '[' + fileLabel + '] ' + statusText; });
+        }catch(sliceErr){
+          chunks = [{ blob:file, mimeType:file.type||'audio/mpeg', label:'Full', chunkIndex:1, totalChunks:1, base64:await fileToBase64(file) }];
+        }
+        // Each slice is handled on its own: one failure no longer stops the rest of the file.
         for (var c = 0; c < chunks.length; c++) {
           var chunk = chunks[c];
           audioQueueText.textContent = '[' + fileLabel + '] Transcribing slice ' + chunk.chunkIndex + '/' + chunk.totalChunks + ' (' + chunk.label + ')...';
-          
-          var transcript = await transcribeChunkWithActiveProvider(chunk);
-
-          var timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-          var chunkHeader = "\n\n--- [Audio: " + file.name + " (" + chunk.label + ") · Transcribed " + timeStr + "] ---\n";
-          var chunkFooter = "\n--- [End Slice: " + chunk.label + "] ---\n";
-
-          var current = page.value.trim();
-          page.value = (current ? (current + chunkHeader) : (chunkHeader.trimStart())) + transcript + chunkFooter;
-
-          page.scrollTop = page.scrollHeight;
-          updateUI();
+          try{
+            insertTranscript(file.name, chunk, await transcribeChunkWithActiveProvider(chunk), null);
+          }catch(err){
+            failed++;await keepFailed(file.name, chunk, err);
+          }
         }
-        toast('Completed ' + file.name);
-      } catch(err) {
-        alert('Error processing ' + file.name + ': ' + err.message);
-        page.value += "\n\n--- [Failed Audio: " + file.name + " (" + err.message + ")] ---\n\n";
       }
+    } finally {
+      audioQueueBar.style.display = 'none';
+      attachAudioBtn.disabled = false;$('retryFailedBtn').disabled = false;
+      audioFileInput.value = '';
+      audioBusy = false;updateUI();
+      await renderFailedBar();
+      toast(failed ? (failed + ' slice' + (failed>1?'s':'') + ' failed and were saved. Use "Retry failed audio".') : 'All audio files processed!');
     }
-
-    audioQueueBar.style.display = 'none';
-    attachAudioBtn.disabled = false;
-    audioFileInput.value = '';
-    toast('All audio files processed!');
   });
+
+  $('retryFailedBtn').addEventListener('click', async function(){
+    var all=await faAll();
+    if(!all.length){renderFailedBar();return}
+    all.sort(function(x,y){return (x.savedAt-y.savedAt)||(x.chunkIndex-y.chunkIndex)});
+    audioQueueBar.style.display='flex';attachAudioBtn.disabled=true;this.disabled=true;
+    audioBusy=true;updateUI();
+    var ok=0,still=0;
+    try{
+      for(var i=0;i<all.length;i++){
+        var r=all[i];
+        audioQueueText.textContent='Retrying '+r.fileName+' ('+r.label+'), '+(i+1)+' of '+all.length+'...';
+        try{
+          var chunk={blob:r.blob,mimeType:r.mimeType,label:r.label,chunkIndex:r.chunkIndex,totalChunks:r.totalChunks,base64:await fileToBase64(r.blob)};
+          insertTranscript(r.fileName,chunk,await transcribeChunkWithActiveProvider(chunk),failMarker(r));
+          await faDel(r.id);ok++;
+        }catch(err){
+          still++;r.error=String((err&&err.message)||err);r.savedAt=Date.now();
+          await faPut(r).catch(function(){});
+        }
+      }
+    } finally {
+      audioQueueBar.style.display='none';attachAudioBtn.disabled=false;this.disabled=false;
+      audioBusy=false;updateUI();
+      await renderFailedBar();
+      toast(ok+' slice'+(ok===1?'':'s')+' recovered'+(still?', '+still+' still failing':''));
+    }
+  });
+  $('discardFailedBtn').addEventListener('click', async function(){
+    if(!confirm('Discard the saved failed audio? You would need to re-attach the file to try again.'))return;
+    await faClear().catch(function(){});renderFailedBar();toast('Failed audio discarded');
+  });
+  renderFailedBar();
 
   /* Copy Actions */
   $('copyBtn').addEventListener('click',function(){copy(page.value).then(function(){toast('Transcript copied')})});
@@ -1003,6 +1113,7 @@ var PRESETS = {
     $('azureSubKey').value = load('ms_az_subkey') || '';
     $('azureWhisperDeploy').value = load('ms_az_whisper') || 'whisper';
     $('azureWhisperVer').value = load('ms_az_whisper_ver') || '2024-06-01';
+    $('azureWhisperRpm').value = load('ms_az_whisper_rpm') || '3';
 
     fillGeminiModels(savedGeminiList()||defaultGemini, load('ms_gemini_model'));
     $('geminiKey').value = load('ms_gemini_key') || '';
@@ -1019,12 +1130,13 @@ var PRESETS = {
     store('ms_az_subkey', $('azureSubKey').value.trim());
     store('ms_az_whisper', $('azureWhisperDeploy').value.trim());
     store('ms_az_whisper_ver', $('azureWhisperVer').value.trim());
+    store('ms_az_whisper_rpm', $('azureWhisperRpm').value.trim());
     store('ms_gemini_key', $('geminiKey').value.trim());
     store('ms_gemini_model', $('geminiModel').value);
     store('ms_groq_key', $('groqKey').value.trim());
   }
 
-  ['azureEndpoint','azureDeploy','azureApiVer','azureSubKey','azureWhisperDeploy','azureWhisperVer','geminiKey','groqKey'].forEach(function(id){
+  ['azureEndpoint','azureDeploy','azureApiVer','azureSubKey','azureWhisperDeploy','azureWhisperVer','azureWhisperRpm','geminiKey','groqKey'].forEach(function(id){
     $(id).addEventListener('input', saveProviderInputs);
   });
   $('geminiModel').addEventListener('change', saveProviderInputs);
@@ -1185,6 +1297,7 @@ var PRESETS = {
   }
 
   $('sumBtn').addEventListener('click', async function(){
+    if (audioBusy) { toast('Audio is still being transcribed. Summarize once it finishes.'); return; }
     var prompt = getFullPromptText();
     this.disabled = true; $('copyNotes').disabled = true;
     out.innerHTML = '<div class="loading"><span class="spin"></span>Generating meeting minutes with ' + provSelect.value.toUpperCase() + '...</div>';
