@@ -66,6 +66,9 @@ header.top{grid-column:1/-1;display:flex;align-items:center;justify-content:spac
 #saveState{font-size:12px;color:#94A3B8}
 #saveState.bad{color:var(--live)}
 
+.rec-audio{padding:8px 20px;background:#F0FDF4;border-bottom:1px solid #BBF7D0;font-size:12.5px;color:#166534;display:none;align-items:center;gap:10px;flex-wrap:wrap}
+.rec-audio .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--live);margin-right:6px;animation:recblink 1.2s ease-in-out infinite}
+@keyframes recblink{50%{opacity:.25}}
 .failed-audio{padding:8px 20px;background:#FEF2F2;border-bottom:1px solid #FECACA;font-size:12.5px;color:#991B1B;display:none;align-items:center;gap:10px;flex-wrap:wrap}
 .failed-audio small{display:block;color:#B91C1C;opacity:.85}
 .audio-queue-status{
@@ -227,6 +230,9 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
       <span style="flex:1;min-width:240px;display:flex;align-items:center;gap:6px">
         <b>Attendees:</b> <input type="text" id="attendeesInput" placeholder="Emails separated by semicolons..." style="flex:1">
       </span>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer" title="While the microphone is on, also record compressed audio in this browser so an AI model can transcribe it afterwards">
+        <input type="checkbox" id="recAudioChk" checked> 🎧 <b>Also record audio</b> for an AI transcript
+      </label>
     </div>
 
     <div class="action-ribbon" id="ribbon">
@@ -238,6 +244,14 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
     <div class="audio-queue-status" id="audioQueueBar">
       <span class="spin" style="width:14px;height:14px;border-top-color:#1E40AF"></span>
       <span id="audioQueueText">Processing audio...</span>
+    </div>
+
+    <!-- Background audio recording (dual-stream) -->
+    <div class="rec-audio" id="recBar" role="status">
+      <span id="recText"></span>
+      <button class="btn sm" id="recTranscribeBtn" style="margin-left:auto" type="button">✨ AI transcript of recording</button>
+      <button class="btn sm" id="recDownloadBtn" type="button">Download</button>
+      <button class="btn sm" id="recDiscardBtn" type="button">Discard</button>
     </div>
 
     <!-- Failed audio slices kept for retry -->
@@ -932,6 +946,7 @@ var BAKED_CUSTOM_PRESETS = {};
   }
 
   function stopUI(){
+    if(typeof stopRecorder==='function')stopRecorder();
     recBtn.classList.remove('on');scribe.classList.remove('on-air');$('meta').classList.remove('on-air');
     if(wakeLock){wakeLock.release().catch(function(){});wakeLock=null}
     clearInterval(tick);interim='';interimBox.style.display='none';
@@ -955,6 +970,7 @@ var BAKED_CUSTOM_PRESETS = {};
       return;
     }
     wantListening=true;startUI();try{recognition.start()}catch(e){}
+    startRecorder();
   });
 
   /* =====================================================================
@@ -1199,42 +1215,200 @@ var BAKED_CUSTOM_PRESETS = {};
     try{await faPut(rec)}catch(e2){page.value+="(Failed slice could not be saved for retry: "+e2.message+")\n"}
   }
 
+  /* Shared audio pipeline: used by Attach Audio and by the background recording.
+     items: [{file, label, sectionHeader, onDone(failedCount)}] */
+  async function runAudioJob(items){
+    audioQueueBar.style.display='flex';
+    attachAudioBtn.disabled=true;$('retryFailedBtn').disabled=true;$('recTranscribeBtn').disabled=true;
+    audioBusy=true;updateUI();
+    var failed=0;
+    try{
+      for(var f=0;f<items.length;f++){
+        var it=items[f], file=it.file;
+        var fileLabel=(it.label||'File')+' '+(f+1)+'/'+items.length+' ('+file.name+')';
+        if(it.sectionHeader){var cur=page.value.trim();page.value=(cur?cur+"\n\n":"")+it.sectionHeader+"\n";updateUI();}
+        var chunks;
+        try{
+          chunks=await sliceAndDownsampleAudio(file,function(statusText){audioQueueText.textContent='['+fileLabel+'] '+statusText});
+        }catch(sliceErr){
+          chunks=[{blob:file,mimeType:file.type||'audio/mpeg',label:'Full',chunkIndex:1,totalChunks:1,base64:await fileToBase64(file)}];
+        }
+        var fileFailed=0;
+        for(var c=0;c<chunks.length;c++){
+          var chunk=chunks[c];
+          audioQueueText.textContent='['+fileLabel+'] Transcribing slice '+chunk.chunkIndex+'/'+chunk.totalChunks+' ('+chunk.label+')...';
+          try{
+            insertTranscript(file.name,chunk,await transcribeChunkWithActiveProvider(chunk),null);
+          }catch(err){
+            failed++;fileFailed++;await keepFailed(file.name,chunk,err);
+          }
+        }
+        if(it.onDone)await it.onDone(fileFailed);
+      }
+    } finally {
+      audioQueueBar.style.display='none';
+      attachAudioBtn.disabled=false;$('retryFailedBtn').disabled=false;$('recTranscribeBtn').disabled=false;
+      audioBusy=false;updateUI();
+      await renderFailedBar();
+    }
+    return failed;
+  }
+
   audioFileInput.addEventListener('change', async function(e){
     var files = Array.from(e.target.files);
     if (!files.length) return;
-    audioQueueBar.style.display = 'flex';
-    attachAudioBtn.disabled = true;$('retryFailedBtn').disabled = true;
-    audioBusy = true;updateUI();
-    var failed = 0;
+    audioFileInput.value = '';
+    var failed = await runAudioJob(files.map(function(f){return {file:f,label:'File'}}));
+    toast(failed ? (failed + ' slice(s) failed and saved. Use "Retry failed audio".') : 'All audio files processed!');
+  });
+
+  /* =====================================================================
+     SECTION 3B - DUAL-STREAM: RECORD AUDIO WHILE DICTATING
+     While the microphone is on, a second track records compressed audio
+     (Opus, about 14 MB per hour) and saves it to IndexedDB every 10 seconds,
+     so a crash or closed tab loses at most the last few seconds.
+     After the meeting, "AI transcript of recording" sends it through the same
+     slicer and provider as Attach Audio and appends the result below the
+     live dictation.
+     ===================================================================== */
+  var RC_DB='meetingScribe_recordings_v1';
+  function rcOpen(){
+    return new Promise(function(res,rej){
+      if(!window.indexedDB){rej(new Error('Browser storage not available'));return}
+      var r=indexedDB.open(RC_DB,1);
+      r.onupgradeneeded=function(){var db=r.result;db.createObjectStore('meta',{keyPath:'id'});db.createObjectStore('chunks',{keyPath:'key'}).createIndex('rec','rec')};
+      r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)};
+    });
+  }
+  function rcTx(stores,mode,fn){
+    return rcOpen().then(function(db){
+      return new Promise(function(res,rej){
+        var tx=db.transaction(stores,mode),req=fn(tx);
+        tx.oncomplete=function(){db.close();res(req?req.result:undefined)};
+        tx.onerror=function(){db.close();rej(tx.error)};tx.onabort=function(){db.close();rej(tx.error)};
+      });
+    });
+  }
+  function rcMetaAll(){return rcTx(['meta'],'readonly',function(tx){return tx.objectStore('meta').getAll()}).then(function(r){return r||[]}).catch(function(){return []})}
+  function rcMetaPut(m){return rcTx(['meta'],'readwrite',function(tx){return tx.objectStore('meta').put(m)})}
+  function rcChunkPut(c){return rcTx(['chunks'],'readwrite',function(tx){return tx.objectStore('chunks').put(c)})}
+  function rcChunks(id){return rcTx(['chunks'],'readonly',function(tx){return tx.objectStore('chunks').index('rec').getAll(id)}).then(function(r){return (r||[]).sort(function(x,y){return x.seq-y.seq})})}
+  function rcClear(){return rcTx(['meta','chunks'],'readwrite',function(tx){tx.objectStore('meta').clear();return tx.objectStore('chunks').clear()})}
+
+  var mediaRec=null, recStream=null, liveMeta=null, recSaveChain=Promise.resolve();
+  $('recAudioChk').checked=load('ms_rec_audio')!=='0';
+  $('recAudioChk').addEventListener('change',function(){store('ms_rec_audio',this.checked?'1':'0')});
+
+  function fmtBytes(b){return b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB'}
+  function recMinutes(m){return Math.max(1,Math.round(((m.endedAt||Date.now())-m.startedAt)/60000))}
+  function recTime(ms){return new Date(ms).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}
+
+  async function startRecorder(){
+    if(!$('recAudioChk').checked||mediaRec)return;
+    if(!window.MediaRecorder||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast('This browser cannot record audio. Live dictation only.');return}
     try{
-      for (var f = 0; f < files.length; f++) {
-        var file = files[f];
-        var fileLabel = 'File ' + (f + 1) + '/' + files.length + ' (' + file.name + ')';
-        var chunks;
-        try{
-          chunks = await sliceAndDownsampleAudio(file, function(statusText){ audioQueueText.textContent = '[' + fileLabel + '] ' + statusText; });
-        }catch(sliceErr){
-          chunks = [{ blob:file, mimeType:file.type||'audio/mpeg', label:'Full', chunkIndex:1, totalChunks:1, base64:await fileToBase64(file) }];
-        }
-        for (var c = 0; c < chunks.length; c++) {
-          var chunk = chunks[c];
-          audioQueueText.textContent = '[' + fileLabel + '] Transcribing slice ' + chunk.chunkIndex + '/' + chunk.totalChunks + ' (' + chunk.label + ')...';
-          try{
-            insertTranscript(file.name, chunk, await transcribeChunkWithActiveProvider(chunk), null);
-          }catch(err){
-            failed++;await keepFailed(file.name, chunk, err);
-          }
-        }
-      }
-    } finally {
-      audioQueueBar.style.display = 'none';
-      attachAudioBtn.disabled = false;$('retryFailedBtn').disabled = false;
-      audioFileInput.value = '';
-      audioBusy = false;updateUI();
-      await renderFailedBar();
-      toast(failed ? (failed + ' slice(s) failed and saved. Use "Retry failed audio".') : 'All audio files processed!');
+      var stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+      if(!wantListening){stream.getTracks().forEach(function(t){t.stop()});return} // paused while permission was pending
+      var mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'';
+      var rec=new MediaRecorder(stream,mime?{mimeType:mime,audioBitsPerSecond:32000}:{audioBitsPerSecond:32000});
+      var meta={id:'rec_'+Date.now().toString(36),startedAt:Date.now(),endedAt:Date.now(),bytes:0,status:'recording',transcribed:false,
+        mime:(rec.mimeType||'audio/webm').split(';')[0],title:$('title').value||''};
+      var seq=0;
+      rec.ondataavailable=function(ev){
+        if(!ev.data||!ev.data.size)return;
+        var n=seq++,blob=ev.data;
+        meta.bytes+=blob.size;meta.endedAt=Date.now();
+        recSaveChain=recSaveChain
+          .then(function(){return rcChunkPut({key:meta.id+'_'+String(n).padStart(6,'0'),rec:meta.id,seq:n,blob:blob})})
+          .then(function(){return rcMetaPut(meta)})
+          .catch(function(err){console.warn('Recording save failed',err)});
+        renderRecBar();
+      };
+      rec.onstop=function(){
+        stream.getTracks().forEach(function(t){t.stop()});
+        recSaveChain=recSaveChain.then(function(){meta.status='done';meta.endedAt=Date.now();return rcMetaPut(meta)}).catch(function(){}).then(renderRecBar);
+      };
+      mediaRec=rec;recStream=stream;liveMeta=meta;
+      await rcMetaPut(meta);
+      rec.start(10000); // hand over a chunk every 10 seconds
+      renderRecBar();
+    }catch(e){
+      mediaRec=null;
+      toast('Audio recording could not start ('+((e&&e.message)||e)+'). Live dictation continues.');
+    }
+  }
+  function stopRecorder(){
+    if(!mediaRec)return;
+    var rec=mediaRec;mediaRec=null;recStream=null;liveMeta=null;
+    try{rec.stop()}catch(e){}
+  }
+
+  async function renderRecBar(){
+    var bar=$('recBar'),txt=$('recText');
+    if(mediaRec&&liveMeta){
+      txt.innerHTML='<span class="live-dot"></span><b>Recording audio for an AI transcript</b> · '+recMinutes(liveMeta)+' min · '+fmtBytes(liveMeta.bytes)+' saved in this browser';
+      ['recTranscribeBtn','recDownloadBtn','recDiscardBtn'].forEach(function(id){$(id).disabled=true});
+      bar.style.display='flex';return;
+    }
+    var all=(await rcMetaAll()).filter(function(m){return m.bytes>0});
+    if(!all.length){bar.style.display='none';return}
+    var mins=0,bytes=0,todo=0,interrupted=0;
+    all.forEach(function(m){mins+=recMinutes(m);bytes+=m.bytes;if(!m.transcribed)todo++;if(m.status==='recording')interrupted++});
+    txt.innerHTML='🎧 <b>'+all.length+' recording'+(all.length>1?'s':'')+' saved</b> ('+mins+' min, '+fmtBytes(bytes)+')'+
+      (todo?' · '+todo+' without an AI transcript yet':' · AI transcript done')+
+      (interrupted?' · '+interrupted+' interrupted (still usable)':'');
+    $('recTranscribeBtn').disabled=audioBusy;$('recDownloadBtn').disabled=false;$('recDiscardBtn').disabled=false;
+    bar.style.display='flex';
+  }
+
+  async function recordingFile(m){
+    var parts=await rcChunks(m.id);
+    var blob=new Blob(parts.map(function(p){return p.blob}),{type:m.mime||'audio/webm'});
+    var name='Recording '+recTime(m.startedAt).replace(/[^\w ]+/g,'-')+'.webm';
+    return new File([blob],name,{type:blob.type});
+  }
+
+  $('recTranscribeBtn').addEventListener('click',async function(){
+    if(audioBusy||mediaRec)return;
+    var all=(await rcMetaAll()).filter(function(m){return m.bytes>0}).sort(function(x,y){return x.startedAt-y.startedAt});
+    var todo=all.filter(function(m){return !m.transcribed});
+    if(!todo.length){
+      if(!all.length)return;
+      if(!confirm('These recordings already have an AI transcript. Run them again?'))return;
+      todo=all;
+    }
+    var items=[];
+    for(var i=0;i<todo.length;i++){
+      (function(m){
+        items.push({m:m});
+      })(todo[i]);
+    }
+    for(var j=0;j<items.length;j++){
+      var m=items[j].m;
+      items[j]={file:await recordingFile(m),label:'Recording',
+        sectionHeader:'--- [AI Transcript of Audio Recording · started '+recTime(m.startedAt)+' · '+recMinutes(m)+' min] ---',
+        onDone:(function(mm){return async function(){mm.transcribed=true;mm.status='done';await rcMetaPut(mm)}})(m)};
+    }
+    var failed=await runAudioJob(items);
+    await renderRecBar();
+    toast(failed?(failed+' slice(s) failed and saved. Use "Retry failed audio".'):'AI transcript added below the live dictation.');
+  });
+
+  $('recDownloadBtn').addEventListener('click',async function(){
+    var all=(await rcMetaAll()).filter(function(m){return m.bytes>0}).sort(function(x,y){return x.startedAt-y.startedAt});
+    for(var i=0;i<all.length;i++){
+      var f=await recordingFile(all[i]),a=document.createElement('a');
+      a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();document.body.removeChild(a);
+      setTimeout((function(u){return function(){URL.revokeObjectURL(u)}})(a.href),60000);
     }
   });
+
+  $('recDiscardBtn').addEventListener('click',async function(){
+    if(mediaRec)return;
+    if(!confirm('Delete the saved audio recordings from this browser? Download them first if you want to keep a copy.'))return;
+    await rcClear().catch(function(){});renderRecBar();toast('Recordings deleted');
+  });
+  renderRecBar();
 
   $('retryFailedBtn').addEventListener('click', async function(){
     var all=await faAll();
@@ -1279,6 +1453,9 @@ var BAKED_CUSTOM_PRESETS = {};
     if(proj) text+='Project: '+proj+'\n';
     if(title) text+='Meeting Title: '+title+'\n';
     text+='Meeting Date: '+new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})+' (use this to turn relative deadlines such as "by Thursday" into dates)\n';
+    if(/AI Transcript of Audio Recording/.test(page.value)&&/Live Microphone Recording/.test(page.value)){
+      text+='Note: The transcript below contains two versions of the same meeting: a rough live browser dictation and a more accurate AI transcript made from the audio recording. Treat the AI transcript as authoritative, use the live dictation only to fill gaps, and do not list the same item twice.\n';
+    }
     text+='\nMeeting Transcript / Raw Notes:\n'+(page.value.trim()||'(No transcript entered yet)');
     return text;
   }
