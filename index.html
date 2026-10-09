@@ -132,11 +132,28 @@ details.cfg summary{cursor:pointer;padding:10px 0;font-size:12px;color:var(--mut
 @keyframes sp{to{transform:rotate(360deg)}}
 .err{color:#DC2626;font-size:13px;background:#FEF2F2;padding:10px;border-radius:6px}
 
-dialog{border:1px solid var(--line);border-radius:12px;background:var(--paper);color:var(--ink);padding:0;width:min(820px,94vw)}
+/* COLLAPSIBLE ACTIVITY PANEL */
+.sync-panel{border-top:1px solid var(--line);background:#F8FAFD;display:none;flex-direction:column}
+.sync-panel-header{
+  padding:8px 18px;display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid #E2E8F0;font-size:12px;font-weight:600;color:var(--navy);
+}
+.sync-title{display:inline-flex;align-items:center;gap:8px}
+.sync-panel-actions{display:flex;align-items:center;gap:6px}
+.sync-log-body{
+  padding:10px 18px;font-size:12px;color:var(--muted);font-family:Consolas,monospace;
+  max-height:120px;overflow-y:auto;line-height:1.5;white-space:pre-wrap;
+}
+.sync-panel.collapsed .sync-log-body{display:none}
+
+/* INSTRUCTIONS MODAL */
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--paper);color:var(--ink);padding:0;width:min(840px,94vw)}
 dialog::backdrop{background:rgba(15,23,42,.45)}
 .dlg-h{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}
 .dlg-h h2{margin:0;font-size:18px;font-weight:600;color:var(--navy)}
 .dlg-b{padding:16px 20px;display:grid;gap:10px}
+.dlg-meta-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.dlg-meta-row input{border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:13px;background:#fff}
 .dlg-b textarea{width:100%;min-height:50vh;resize:vertical;border:1px solid var(--line);border-radius:6px;padding:12px;background:#fff;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.5}
 .dlg-f{display:flex;gap:10px;align-items:center;padding:12px 20px;border-top:1px solid var(--line);flex-wrap:wrap}
 
@@ -163,6 +180,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
     </div>
     <div class="top-r">
       <button class="btn sm" id="authBtn" style="display:none" type="button">Sign in</button>
+      <button class="btn sm" id="topExportHtmlBtn" title="Download updated index.html with all custom styles baked in for GitHub">📥 Export for GitHub</button>
       <span class="pill" id="status"><span class="dot"></span><span id="statusText">Ready</span></span>
     </div>
   </header>
@@ -192,7 +210,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
       <button class="btn sm" id="discardBtn">Discard</button>
     </div>
 
-    <!-- Power App Context Binding Bar with Append Mode Toggle -->
+    <!-- Power App Context Binding Bar with Append Mode Selector -->
     <div class="ctx-bar">
       <span><b>Project:</b> <input type="text" id="projectInput" placeholder="Project Name..." style="width:190px"></span>
       <span><b>Meeting ID:</b> <input type="text" id="meetingIdInput" placeholder="Auto / New" style="width:75px" title="Personal_Meetings SharePoint Row ID"></span>
@@ -237,7 +255,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
     <div class="actions">
       <input type="file" id="audioFileInput" multiple accept="audio/*,.wav,.mp3,.m4a,.aac,.webm,.ogg" style="display:none">
       
-      <button class="btn" id="attachAudioBtn" title="Upload pre-recorded audio files (MP3, M4A, WAV, WebM). Multiple files supported!">
+      <button class="btn" id="attachAudioBtn" title="Upload pre-recorded audio files (MP3, M4A, WAV, WebM). Slices in 5-minute chunks automatically!">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
         📁 Attach Audio
       </button>
@@ -301,11 +319,11 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
           <label>Whisper API version
             <input type="text" id="azureWhisperVer" value="2024-06-01">
           </label>
-          <label>Whisper requests per minute (your deployment's limit)
+          <label>Whisper requests per minute (rate limit pacing)
             <input type="text" id="azureWhisperRpm" value="3" inputmode="numeric">
           </label>
-          <label>APIM subscription key (if your gateway requires one)
-            <input type="password" id="azureSubKey" autocomplete="off" placeholder="Leave blank if APIM does not require a key">
+          <label>APIM subscription key (optional)
+            <input type="password" id="azureSubKey" autocomplete="off" placeholder="Leave blank if APIM does not require key">
           </label>
         </div>
 
@@ -325,7 +343,7 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
           <label>Model
             <select id="groqModel">
               <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Recommended)</option>
-              <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Ultra-Fast)</option>
+              <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest)</option>
             </select>
           </label>
         </div>
@@ -338,6 +356,21 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
     </details>
 
     <div class="out" id="out" contenteditable="true" spellcheck="true" data-placeholder="Meeting minutes will appear here after clicking Summarize, or click/paste notes directly from Teams or Claude here..."></div>
+
+    <!-- COLLAPSIBLE ACTIVITY & DISPATCH PANEL -->
+    <div class="sync-panel" id="syncPanel">
+      <div class="sync-panel-header">
+        <span class="sync-title">
+          <span class="dot" style="background:var(--navy)"></span>
+          <span id="syncPanelTitle">Activity &amp; Dispatch Log</span>
+        </span>
+        <div class="sync-panel-actions">
+          <button class="btn sm" id="clearLogBtn" type="button">Clear</button>
+          <button class="btn sm" id="toggleSyncLogBtn" type="button">▾ Collapse</button>
+        </div>
+      </div>
+      <div class="sync-log-body" id="syncStatus"></div>
+    </div>
 
     <div class="actions">
       <!-- DISPATCH BUTTON 1: VIA SHARED MAILBOX PLUS-ADDRESSING -->
@@ -357,18 +390,30 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
   </aside>
 </div>
 
-<!-- INSTRUCTIONS MODAL -->
+<!-- INSTRUCTIONS MODAL (WITH NAMED PRESET MANAGEMENT & GITHUB EXPORT) -->
 <dialog id="instDlg" aria-labelledby="dlgT">
-  <div class="dlg-h"><h2 id="dlgT">AI Instructions</h2><button class="btn sm" id="dlgX" aria-label="Close">Close</button></div>
+  <div class="dlg-h">
+    <h2 id="dlgT">AI Instructions &amp; Presets</h2>
+    <button class="btn sm" id="dlgX" aria-label="Close">Close</button>
+  </div>
   <div class="dlg-b">
-    <p id="dlgP" style="font-size:13px;color:var(--muted);margin:0">These instructions are sent to the AI with every prompt. Edit freely. Saved edits stay on your device only.</p>
-    <textarea id="instText" spellcheck="false"></textarea>
-    <span class="count" id="instCount" style="font-size:12px;color:var(--muted)"></span>
+    <div class="dlg-meta-row">
+      <span style="font-weight:600;font-size:13px">Style Name:</span>
+      <input type="text" id="instTitle" placeholder="e.g. Executive Standup Minutes" style="flex:1;min-width:220px">
+    </div>
+    <textarea id="instText" spellcheck="false" placeholder="Write or paste your custom AI instructions here..."></textarea>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span class="count" id="instCount" style="font-size:12px;color:var(--muted)"></span>
+      <small style="color:var(--muted)">Saved edits persist on this device. Click "Export for GitHub" to bake them permanently into code.</small>
+    </div>
   </div>
   <div class="dlg-f">
-    <button class="btn primary" id="instSave">Save as my default</button>
-    <button class="btn" id="instReset">Reset to built-in</button>
+    <button class="btn primary" id="instSave">Save</button>
+    <button class="btn" id="instSaveAsNew" title="Create a new named style with this prompt">Save as New Style</button>
+    <button class="btn" id="instDelete" style="display:none;color:#B91C1C" title="Delete this custom preset">Delete Style</button>
+    <button class="btn" id="instReset">Reset to Built-in</button>
     <span class="spacer"></span>
+    <button class="btn" id="exportHtmlBtn" title="Download updated index.html with all your custom presets baked in for GitHub">📥 Export for GitHub (Make Global)</button>
     <button class="btn" id="instCancel">Cancel</button>
   </div>
 </dialog>
@@ -378,19 +423,16 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
 <script>
 /* =====================================================================
    SECTION 0 - ENTRA SIGN-IN (used by the Azure OpenAI / APIM provider)
-   Fill these in from your app registration. They are IDs, not secrets,
-   so they are safe in a public GitHub repo. Leave clientId empty to turn
-   sign-in off (the page then calls APIM without a token).
    ===================================================================== */
 var ENTRA = {
-  tenantId: '',          // Directory (tenant) ID
-  clientId: '',          // Application (client) ID of the Meeting Scribe app registration
-  scope: '',             // Leave empty to use api://<clientId>/access_as_user
-  redirectPage: 'auth.html' // Blank page in the same GitHub folder; register its full URL as an SPA redirect URI
+  tenantId: '',
+  clientId: '',
+  scope: '',
+  redirectPage: 'auth.html'
 };
 
 /* =====================================================================
-   SECTION 1 - SYSTEM PROMPTS
+   SECTION 1 - SYSTEM PROMPTS & PRESET ARCHITECTURE
    ===================================================================== */
 var MEETING_MINUTES = `You are a professional enterprise project manager and technical note-taker. Below is a transcript or meeting notes from an operational/project meeting. Fix obvious speech transcription errors silently.
 
@@ -432,10 +474,16 @@ Produce a concise brief in Markdown under 200 words:
 ## Needs Attention
 [Approvals, budget items, or cross-functional blockers requiring escalation]`;
 
-var PRESETS = {
+/* BUILT-IN PRESETS */
+var BUILTIN_PRESETS = {
   'mtg-minutes': { label: 'Action Items & Meeting Minutes', text: MEETING_MINUTES },
   'mtg-brief':   { label: 'Executive 1-Page Brief',         text: MEETING_BRIEF }
 };
+
+/* CUSTOM PRESETS BAKED FROM PREVIOUS EXPORTS (Populated when exported) */
+/* BAKE_PRESETS_START */
+var BAKED_CUSTOM_PRESETS = {};
+/* BAKE_PRESETS_END */
 
 /* =====================================================================
    SECTION 2 - APPLICATION LOGIC
@@ -449,6 +497,25 @@ var PRESETS = {
   function toast(msg){var t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(function(){t.classList.remove('show')},2800)}
   function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 
+  function logActivity(msg){
+    var panel=$('syncPanel');panel.style.display='flex';
+    panel.classList.remove('collapsed');
+    $('toggleSyncLogBtn').textContent='▾ Collapse';
+    var s=$('syncStatus');
+    s.textContent+='['+new Date().toLocaleTimeString()+'] '+msg+'\n';
+    s.scrollTop=s.scrollHeight;
+  }
+
+  // Collapsible Sync Log actions
+  $('toggleSyncLogBtn').addEventListener('click',function(){
+    var panel=$('syncPanel');
+    var isCol=panel.classList.toggle('collapsed');
+    this.textContent=isCol?'▸ Expand':'▾ Collapse';
+  });
+  $('clearLogBtn').addEventListener('click',function(){
+    $('syncStatus').textContent='';
+  });
+
   /* ---------- Entra sign-in (MSAL) ---------- */
   var msalApp=null, msalReady=null, authBusy=null;
   function entraOn(){return !!(ENTRA.clientId&&ENTRA.tenantId)}
@@ -457,7 +524,7 @@ var PRESETS = {
   function initMsal(){
     if(msalReady)return msalReady;
     if(!entraOn())return Promise.resolve(null);
-    if(!window.msal)return Promise.reject(new Error('The Microsoft sign-in library did not load. Check your connection and reload the page.'));
+    if(!window.msal)return Promise.reject(new Error('The Microsoft sign-in library did not load.'));
     msalApp=new msal.PublicClientApplication({
       auth:{clientId:ENTRA.clientId,authority:'https://login.microsoftonline.com/'+ENTRA.tenantId,redirectUri:entraRedirect()},
       cache:{cacheLocation:'localStorage'}
@@ -472,8 +539,8 @@ var PRESETS = {
   function authError(e){
     var code=(e&&e.errorCode)||'';
     if(code==='user_cancelled')return 'Sign-in was cancelled.';
-    if(code==='popup_window_error'||code==='empty_window_error')return 'The sign-in window was blocked. Allow pop-ups for this site, then try again.';
-    if(code==='interaction_in_progress')return 'A sign-in window is already open. Finish or close it, then try again.';
+    if(code==='popup_window_error'||code==='empty_window_error')return 'Sign-in popup blocked. Allow pop-ups for this site.';
+    if(code==='interaction_in_progress')return 'A sign-in window is already open.';
     return (e&&e.message)||String(e);
   }
   function signIn(){
@@ -508,7 +575,7 @@ var PRESETS = {
   async function readAzure(res){
     var data=null;try{data=await res.json()}catch(e){}
     if(res.ok)return data;
-    if(res.status===401)throw new Error(entraOn()?'Not authorized. Sign in with your work account (top right). If you are already signed in, your account may not be assigned to this app.':'Not authorized. Check the APIM subscription key under AI settings.');
+    if(res.status===401)throw new Error(entraOn()?'Not authorized. Sign in with your work account.':'Not authorized. Check APIM subscription key.');
     if(res.status===429)throw new Error('Rate limit reached. Wait a minute and try again.');
     throw new Error((data&&data.error&&data.error.message)||(data&&data.message)||('Azure APIM HTTP '+res.status));
   }
@@ -518,20 +585,20 @@ var PRESETS = {
     b.style.display='';
     var a=msalApp&&msalApp.getActiveAccount();
     b.textContent=a?('Signed in: '+(a.name||a.username)):'Sign in';
-    b.title=a?('Signed in as '+a.username+'. Click to sign out.'):'Sign in with your work account to use the Azure AI provider';
   }
   $('authBtn').addEventListener('click',async function(){
     try{
       await initMsal();
       var a=msalApp.getActiveAccount();
       if(a){
-        if(!confirm('Sign out '+a.username+' from Meeting Scribe?'))return;
+        if(!confirm('Sign out '+a.username+'?'))return;
         await msalApp.clearCache({account:a});msalApp.setActiveAccount(null);renderAuth();toast('Signed out');
       }else{await signIn();toast('Signed in')}
     }catch(e){if(e&&e.errorCode==='user_cancelled')return;alert('Sign-in problem: '+authError(e))}
   });
   renderAuth();
   if(entraOn())initMsal().catch(function(e){console.warn('MSAL init',e)});
+
   function copy(text){
     if(navigator.clipboard&&window.isSecureContext){return navigator.clipboard.writeText(text)}
     return new Promise(function(res,rej){
@@ -546,41 +613,195 @@ var PRESETS = {
   function fmt(s){var m=Math.floor(s/60),r=s%60;return m+':'+(r<10?'0':'')+r}
   function setStatus(text,live){$('statusText').textContent=text;$('status').className='pill'+(live?' live':'')}
 
-  /* Preset Management */
+  /* =====================================================================
+     NAMED PRESETS & INSTRUCTIONS MANAGEMENT (LOCAL STORAGE + GLOBAL EXPORT)
+     ===================================================================== */
+  var CUSTOM_KEY='ms_custom_presets_v1';
+  function getCustomPresets(){
+    var raw=load(CUSTOM_KEY);
+    var local={};
+    try{ local=raw?JSON.parse(raw):{}; }catch(e){}
+    return Object.assign({}, BAKED_CUSTOM_PRESETS, local);
+  }
+  function saveCustomPresets(obj){
+    store(CUSTOM_KEY, JSON.stringify(obj));
+  }
+  function getAllPresets(){
+    var customs=getCustomPresets();
+    return Object.assign({}, BUILTIN_PRESETS, customs);
+  }
+
   function fillPresets(){
     var sel=$('preset');sel.innerHTML='';
-    Object.keys(PRESETS).forEach(function(id){
-      var p=PRESETS[id];
+    var all=getAllPresets();
+    var keys=Object.keys(all);
+
+    keys.forEach(function(id){
+      var p=all[id];
       var o=document.createElement('option');o.value=id;
-      o.textContent=p.label+(load('ms_inst_'+id)?' (edited)':'');
+      var isCustom=!!getCustomPresets()[id];
+      var isEdited=!!load('ms_inst_'+id);
+      o.textContent=p.label+(isCustom?' [Custom]':(isEdited?' [Edited]':''));
       sel.appendChild(o);
     });
+
+    // Add "+ Create New Style..." option
+    var newOpt=document.createElement('option');
+    newOpt.value='__new__';
+    newOpt.textContent='➕ Create New Style...';
+    sel.appendChild(newOpt);
+
+    if(!all[presetId]){
+      presetId='mtg-minutes';
+    }
     sel.value=presetId;
   }
-  function getInstr(){return load('ms_inst_'+presetId)||PRESETS[presetId].text}
-  $('preset').addEventListener('change',function(){presetId=$('preset').value});
-  fillPresets();
 
-  /* Instructions Dialog */
+  function getInstr(){
+    var all=getAllPresets();
+    return load('ms_inst_'+presetId)||(all[presetId]&&all[presetId].text)||'';
+  }
+
+  $('preset').addEventListener('change',function(){
+    if(this.value==='__new__'){
+      openNewPresetModal();
+    } else {
+      presetId=this.value;
+    }
+  });
+
+  /* Instructions Dialog Controls */
   var dlg=$('instDlg');
-  function countInst(){var t=$('instText').value;$('instCount').textContent=(t.trim()?t.trim().split(/\s+/).length:0)+' words'}
-  $('editInst').addEventListener('click',function(){
-    $('dlgT').textContent='AI instructions: '+(PRESETS[presetId]?PRESETS[presetId].label:'Current Style');
-    $('instText').value=getInstr();countInst();
+  function countInst(){
+    var t=$('instText').value;
+    $('instCount').textContent=(t.trim()?t.trim().split(/\s+/).length:0)+' words';
+  }
+
+  function openPresetModal(targetId){
+    var all=getAllPresets();
+    var p=all[targetId]||all[presetId];
+    var isCustom=!!getCustomPresets()[targetId||presetId];
+
+    $('dlgT').textContent='Edit Style: '+(p?p.label:'Instructions');
+    $('instTitle').value=p?p.label:'';
+    $('instText').value=getInstr();
+    $('instDelete').style.display=isCustom?'inline-flex':'none';
+    $('instReset').style.display=isCustom?'none':'inline-flex';
+    countInst();
     if(dlg.showModal) dlg.showModal(); else dlg.setAttribute('open','');
+  }
+
+  function openNewPresetModal(){
+    $('dlgT').textContent='Create New AI Instruction Style';
+    $('instTitle').value='';
+    $('instText').value=getInstr()||'';
+    $('instDelete').style.display='none';
+    $('instReset').style.display='none';
+    countInst();
+    if(dlg.showModal) dlg.showModal(); else dlg.setAttribute('open','');
+  }
+
+  $('editInst').addEventListener('click',function(){
+    openPresetModal(presetId);
   });
   $('instText').addEventListener('input',countInst);
+
+  // Save current preset
   $('instSave').addEventListener('click',function(){
     var v=$('instText').value.trim();
+    var title=$('instTitle').value.trim();
     if(!v){toast('Instructions cannot be empty');return}
-    store('ms_inst_'+presetId, v===PRESETS[presetId].text.trim()?null:v);
-    fillPresets();dlg.close();toast('Saved as default for this device');
+    
+    var customs=getCustomPresets();
+    if(customs[presetId]){
+      customs[presetId].label=title||customs[presetId].label;
+      customs[presetId].text=v;
+      saveCustomPresets(customs);
+      toast('Custom style updated');
+    } else {
+      store('ms_inst_'+presetId, v===BUILTIN_PRESETS[presetId].text.trim()?null:v);
+      toast('Saved as default for this device');
+    }
+    fillPresets();
+    dlg.close();
   });
+
+  // Save as new preset
+  $('instSaveAsNew').addEventListener('click',function(){
+    var v=$('instText').value.trim();
+    var title=$('instTitle').value.trim()||('Meeting Style '+(new Date().toLocaleDateString()));
+    if(!v){toast('Instructions cannot be empty');return}
+
+    var newId='custom_'+Date.now().toString(36);
+    var customs=getCustomPresets();
+    customs[newId]={
+      id:newId,
+      label:title,
+      text:v
+    };
+    saveCustomPresets(customs);
+    presetId=newId;
+    fillPresets();
+    dlg.close();
+    toast('New style "'+title+'" created!');
+  });
+
+  // Delete custom preset
+  $('instDelete').addEventListener('click',function(){
+    if(!confirm('Delete this custom instruction style?'))return;
+    var customs=getCustomPresets();
+    delete customs[presetId];
+    saveCustomPresets(customs);
+    store('ms_inst_'+presetId,null);
+    presetId='mtg-minutes';
+    fillPresets();
+    dlg.close();
+    toast('Custom style deleted');
+  });
+
   $('instReset').addEventListener('click',function(){
-    store('ms_inst_'+presetId,null);$('instText').value=PRESETS[presetId].text;countInst();fillPresets();toast('Reset to built-in instructions');
+    store('ms_inst_'+presetId,null);
+    $('instText').value=BUILTIN_PRESETS[presetId].text;
+    countInst();
+    fillPresets();
+    toast('Reset to built-in instructions');
   });
   $('instCancel').addEventListener('click',function(){dlg.close()});
   $('dlgX').addEventListener('click',function(){dlg.close()});
+
+  /* -------------------------------------------------------------
+     EXPORT MASTER HTML (BAKES CUSTOM PRESETS TO MAKE GLOBAL FOR GITHUB)
+     ------------------------------------------------------------- */
+  $('exportHtmlBtn').addEventListener('click', async function(){
+    toast('Packaging master index.html with all custom presets baked in...');
+    try {
+      var customs=getCustomPresets();
+      var serializedCustoms=JSON.stringify(customs, null, 2);
+
+      var res=await fetch(window.location.href);
+      var srcText=await res.text();
+
+      var reBake=/\/\* BAKE_PRESETS_START \*\/[\s\S]*?\/\* BAKE_PRESETS_END \*\//;
+      var newBlock="/* BAKE_PRESETS_START */\nvar BAKED_CUSTOM_PRESETS = " + serializedCustoms + ";\n/* BAKE_PRESETS_END */";
+
+      var finalHtml=srcText.replace(reBake, newBlock);
+
+      var blob=new Blob([finalHtml], {type:'text/html'});
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='index.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      alert('Downloaded updated index.html! Commit this file to your Meeting_Scribe GitHub repository, and all your custom styles will be permanently baked into code across all devices.');
+    } catch(e) {
+      alert('Export failed: ' + e.message);
+    }
+  });
+
+  var topExp=$('topExportHtmlBtn');
+  if(topExp) topExp.addEventListener('click',function(){ $('exportHtmlBtn').click(); });
 
   /* Case-Insensitive URL Parameter Reader */
   function getUrlParam(name) {
@@ -737,9 +958,9 @@ var PRESETS = {
   });
 
   /* =====================================================================
-     SECTION 3 - IN-BROWSER 5-MIN AUDIO SLICER & RECURSIVE CHUNK QUEUE
+     SECTION 3 - IN-BROWSER AUDIO SLICER & RECURSIVE CHUNK QUEUE
      ===================================================================== */
-  var audioBusy = false; // true while audio files are being transcribed
+  var audioBusy = false;
   var attachAudioBtn = $('attachAudioBtn');
   var audioFileInput = $('audioFileInput');
   var audioQueueBar  = $('audioQueueBar');
@@ -760,12 +981,12 @@ var PRESETS = {
 
   function bufferToMonoWav(buffer, sampleRate) {
     var length = buffer.length * 2 + 44;
-    var out = new DataView(new ArrayBuffer(length));
+    var outData = new DataView(new ArrayBuffer(length));
     var channel = buffer.getChannelData(0);
     var pos = 0;
 
-    function setUint16(data) { out.setUint16(pos, data, true); pos += 2; }
-    function setUint32(data) { out.setUint32(pos, data, true); pos += 4; }
+    function setUint16(data) { outData.setUint16(pos, data, true); pos += 2; }
+    function setUint32(data) { outData.setUint32(pos, data, true); pos += 4; }
 
     setUint32(0x46464952); setUint32(length - 8); setUint32(0x45564157);
     setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(1);
@@ -774,10 +995,10 @@ var PRESETS = {
 
     for (var i = 0; i < buffer.length; i++) {
       var s = Math.max(-1, Math.min(1, channel[i]));
-      out.setInt16(pos, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      outData.setInt16(pos, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
       pos += 2;
     }
-    return new Blob([out.buffer], { type: 'audio/wav' });
+    return new Blob([outData.buffer], { type: 'audio/wav' });
   }
 
   async function sliceAndDownsampleAudio(file, onProgress) {
@@ -790,9 +1011,6 @@ var PRESETS = {
       var audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
       var totalDuration = audioBuffer.duration;
       var targetRate = 16000;
-      // Slice length: 16 kHz mono WAV is about 1.9 MB per minute.
-      // Azure Whisper accepts 25 MB per request, so 11-minute slices (~21 MB) mean fewer requests
-      // against its low per-minute limit. Gemini gets 5-minute slices to stay under its ~20 MB inline limit.
       var chunkDuration = ($('prov').value === 'azure') ? 660 : 300;
       var totalChunks = Math.ceil(totalDuration / chunkDuration);
       var chunkPayloads = [];
@@ -855,32 +1073,31 @@ var PRESETS = {
       afd.append('file', chunkPayload.blob, 'audio.' + ext);
       afd.append('response_format', 'json');
       var aUrl = abase + '/deployments/' + encodeURIComponent(wdep) + '/audio/transcriptions?api-version=' + encodeURIComponent(wver);
-      // Whisper deployments have low per-minute limits, so wait and retry when Azure says "too many requests".
+
       for (var attempt = 0; attempt < 6; attempt++) {
-        // Pace requests to stay under the deployment's requests-per-minute limit.
         var rpm = Math.max(1, parseInt($('azureWhisperRpm').value, 10) || 3);
         var spacing = Math.ceil(60000 / rpm) + 1000;
         var waitMs = spacing - (Date.now() - lastWhisperAt);
         while (waitMs > 0) {
-          audioQueueText.textContent = 'Pacing for the Whisper limit (' + rpm + ' per minute): next slice in ' + Math.ceil(waitMs / 1000) + 's...';
+          audioQueueText.textContent = 'Pacing Whisper limit (' + rpm + ' RPM): next slice in ' + Math.ceil(waitMs / 1000) + 's...';
           await new Promise(function(r){ setTimeout(r, Math.min(1000, waitMs)); });
           waitMs = spacing - (Date.now() - lastWhisperAt);
         }
         var ah = await azureHeaders();
-        delete ah['Content-Type']; // the browser sets the multipart boundary itself
+        delete ah['Content-Type'];
         var aRes = await fetch(aUrl, { method: 'POST', headers: ah, body: afd });
-        lastWhisperAt = Date.now(); // measured from when Azure finished the last request
+        lastWhisperAt = Date.now();
         if (aRes.status === 429 && attempt < 5) {
           var waitS = parseInt(aRes.headers.get('Retry-After') || '', 10) || (20 + attempt * 10);
           for (var w = waitS; w > 0; w--) {
-            audioQueueText.textContent = 'Azure Whisper rate limit reached. Retrying in ' + w + 's (attempt ' + (attempt + 2) + ' of 6)...';
+            audioQueueText.textContent = 'Azure Whisper rate limit reached. Retrying in ' + w + 's...';
             await new Promise(function(r){ setTimeout(r, 1000); });
           }
           continue;
         }
         var aData = await readAzure(aRes);
         if (aData && typeof aData.text === 'string') return aData.text;
-        throw new Error('Azure returned no transcript. Check that the APIM policy sends /audio/transcriptions to your Whisper deployment.');
+        throw new Error('Azure returned no transcript.');
       }
     }
 
@@ -926,11 +1143,11 @@ var PRESETS = {
     return data.candidates[0].content.parts.map(function(p){ return p.text || ''; }).join('').trim();
   }
 
-  /* ---------- Failed audio slices: kept in IndexedDB so they survive a reload ---------- */
+  /* Failed Audio Storage (IndexedDB) */
   var FA_DB='meetingScribe_failedAudio_v1', FA_STORE='slices';
   function faOpen(){
     return new Promise(function(res,rej){
-      if(!window.indexedDB){rej(new Error('Browser storage not available'));return}
+      if(!window.indexedDB){rej(new Error('Storage not available'));return}
       var r=indexedDB.open(FA_DB,1);
       r.onupgradeneeded=function(){r.result.createObjectStore(FA_STORE,{keyPath:'id'})};
       r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)};
@@ -957,7 +1174,7 @@ var PRESETS = {
     all.sort(function(x,y){return y.savedAt-x.savedAt});
     var names={};all.forEach(function(r){names[r.fileName]=1});
     $('failedText').innerHTML='<b>'+all.length+' audio slice'+(all.length>1?'s':'')+' failed</b> ('+esc(Object.keys(names).join(', '))+
-      '). Saved in this browser, so you can retry without re-attaching. Retry uses the provider selected in AI settings.'+
+      '). Saved in this browser. Click "Retry failed audio".'+
       '<small>Last error: '+esc(String(all[0].error||'unknown').slice(0,160))+'</small>';
     bar.style.display='flex';
   }
@@ -966,7 +1183,7 @@ var PRESETS = {
     var header="--- [Audio: "+fileName+" ("+chunk.label+") · Transcribed "+timeStr+"] ---\n";
     var footer="\n--- [End Slice: "+chunk.label+"] ---";
     if(marker&&page.value.indexOf(marker)>-1){
-      page.value=page.value.replace(marker,header+transcript+footer);   // put it back where the failed slice was
+      page.value=page.value.replace(marker,header+transcript+footer);
     }else{
       var current=page.value.trim();
       page.value=(current?current+"\n\n":"")+header+transcript+footer+"\n";
@@ -979,7 +1196,7 @@ var PRESETS = {
       error:String((err&&err.message)||err),savedAt:Date.now()};
     var current=page.value.trim();
     page.value=(current?current+"\n\n":"")+failMarker(rec)+"\n";updateUI();
-    try{await faPut(rec)}catch(e2){page.value+="(This slice could not be saved for retry: "+e2.message+". Re-attach the file to try again.)\n"}
+    try{await faPut(rec)}catch(e2){page.value+="(Failed slice could not be saved for retry: "+e2.message+")\n"}
   }
 
   audioFileInput.addEventListener('change', async function(e){
@@ -999,7 +1216,6 @@ var PRESETS = {
         }catch(sliceErr){
           chunks = [{ blob:file, mimeType:file.type||'audio/mpeg', label:'Full', chunkIndex:1, totalChunks:1, base64:await fileToBase64(file) }];
         }
-        // Each slice is handled on its own: one failure no longer stops the rest of the file.
         for (var c = 0; c < chunks.length; c++) {
           var chunk = chunks[c];
           audioQueueText.textContent = '[' + fileLabel + '] Transcribing slice ' + chunk.chunkIndex + '/' + chunk.totalChunks + ' (' + chunk.label + ')...';
@@ -1016,7 +1232,7 @@ var PRESETS = {
       audioFileInput.value = '';
       audioBusy = false;updateUI();
       await renderFailedBar();
-      toast(failed ? (failed + ' slice' + (failed>1?'s':'') + ' failed and were saved. Use "Retry failed audio".') : 'All audio files processed!');
+      toast(failed ? (failed + ' slice(s) failed and saved. Use "Retry failed audio".') : 'All audio files processed!');
     }
   });
 
@@ -1044,11 +1260,11 @@ var PRESETS = {
       audioQueueBar.style.display='none';attachAudioBtn.disabled=false;this.disabled=false;
       audioBusy=false;updateUI();
       await renderFailedBar();
-      toast(ok+' slice'+(ok===1?'':'s')+' recovered'+(still?', '+still+' still failing':''));
+      toast(ok+' slice(s) recovered'+(still?', '+still+' still failing':''));
     }
   });
   $('discardFailedBtn').addEventListener('click', async function(){
-    if(!confirm('Discard the saved failed audio? You would need to re-attach the file to try again.'))return;
+    if(!confirm('Discard the saved failed audio?'))return;
     await faClear().catch(function(){});renderFailedBar();toast('Failed audio discarded');
   });
   renderFailedBar();
@@ -1077,12 +1293,11 @@ var PRESETS = {
     out.innerHTML='';
     hideRestore();
     checkNotesState();
+    $('syncPanel').style.display='none';$('syncStatus').textContent='';
     updateUI();
   });
 
-  /* =====================================================================
-     MULTI-PROVIDER AI SETTINGS (Azure APIM, Gemini & Groq)
-     ===================================================================== */
+  /* Multi-Provider Configuration Persistence */
   var provSelect = $('prov');
   function updateProviderView(){
     var p = provSelect.value;
@@ -1117,7 +1332,6 @@ var PRESETS = {
 
     fillGeminiModels(savedGeminiList()||defaultGemini, load('ms_gemini_model'));
     $('geminiKey').value = load('ms_gemini_key') || '';
-
     $('groqKey').value = load('ms_groq_key') || '';
   }
   initAIConfigs();
@@ -1145,7 +1359,7 @@ var PRESETS = {
   // Test Provider Connection Button
   $('checkKey').addEventListener('click', async function(){
     var p = provSelect.value;
-    toast('Testing ' + p.toUpperCase() + ' connection...');
+    logActivity('Testing connection for ' + p.toUpperCase() + '...');
 
     try {
       if (p === 'azure') {
@@ -1163,7 +1377,8 @@ var PRESETS = {
           })
         });
         var d = await readAzure(r);
-        alert('Azure OpenAI (' + dep + ' via APIM) connected successfully! Response: ' + d.choices[0].message.content);
+        logActivity('✓ Azure OpenAI (' + dep + ' via APIM) connected! Response: ' + d.choices[0].message.content);
+        alert('Azure OpenAI connected successfully!');
       } else if (p === 'gemini') {
         var k = $('geminiKey').value.trim();
         if(!k) throw new Error('Paste Gemini key first');
@@ -1177,16 +1392,19 @@ var PRESETS = {
           fillGeminiModels(names, names.indexOf(keep)>-1?keep:(names.filter(function(n){return /flash/.test(n)})[0]||names[0]));
           store('ms_gemini_models',JSON.stringify(names));saveProviderInputs();
         }
-        alert('Google Gemini verified! ' + names.length + ' text models loaded into the Model list (' + (d.models||[]).length + ' models in total).');
+        logActivity('✓ Google Gemini verified! ' + names.length + ' models loaded.');
+        alert('Google Gemini verified successfully!');
       } else if (p === 'groq') {
         var gk = $('groqKey').value.trim();
         if(!gk) throw new Error('Paste Groq key first');
         var r = await fetch('https://api.groq.com/openai/v1/models', { headers: {'Authorization': 'Bearer ' + gk} });
         var d = await r.json();
         if (!r.ok) throw new Error(d.error && d.error.message || 'Groq key failed');
+        logActivity('✓ Groq verified successfully!');
         alert('Groq verified successfully!');
       }
     } catch(e) {
+      logActivity('❌ Connection test error: ' + authError(e));
       alert('Connection Test Failed: ' + authError(e));
     }
   });
@@ -1306,9 +1524,11 @@ var PRESETS = {
       var notesText = await generateSummaryWithActiveProvider(prompt);
       out.innerHTML = mdToHtml(notesText);
       checkNotesState();
+      logActivity('✓ Minutes generated successfully with ' + provSelect.value.toUpperCase());
       toast('Minutes generated successfully!');
     } catch(e) {
       out.innerHTML = '<div class="err">' + esc(e.message) + '</div>';
+      logActivity('❌ AI generation error: ' + e.message);
     } finally {
       $('sumBtn').disabled = false;
     }
@@ -1348,6 +1568,7 @@ var PRESETS = {
       "###SCRIBE_END###";
 
     copy(payload).then(function(){
+      logActivity('Payload copied for [' + title + ']. Mode: ' + saveMode + '. Opening Outlook...');
       toast("Payload copied! Opening Outlook — paste (Ctrl+V) and Send.");
 
       var safeProjTag = project.replace(/\s+/g, '_');
@@ -1358,7 +1579,6 @@ var PRESETS = {
       var subject = encodeURIComponent("[SCRIBE] " + idTag + modeTag + title);
       
       var owaUrl = "https://outlook.office.com/mail/deeplink/compose?to=" + targetEmail + "&subject=" + subject;
-
       window.open(owaUrl, '_blank', 'noopener');
     }).catch(function(){
       alert("Could not copy to clipboard. Please copy manually.");
@@ -1373,6 +1593,7 @@ var PRESETS = {
     var notesText = out.innerText.trim();
 
     copy(notesText).then(function(){
+      logActivity('Copied minutes to clipboard. Opening email for attendees...');
       toast("Summary copied! Opening email draft — paste (Ctrl+V) and send.");
       var subject = encodeURIComponent("Meeting Summary — " + project + " — " + title);
       var target = encodeURIComponent(attendees.replace(/;/g, ','));
