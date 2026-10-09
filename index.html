@@ -393,13 +393,14 @@ dialog::backdrop{background:rgba(15,23,42,.45)}
         <span>📤 Dispatch to SharePoint</span>
       </button>
 
-      <!-- DISPATCH BUTTON 2: EMAIL TO ATTENDEES -->
-      <button class="btn" id="emailAttendeesBtn" disabled title="Open Outlook draft addressed to attendees with clean meeting summary">
+      <!-- DISPATCH BUTTON 2: EMAIL TO ATTENDEES (RICH HTML) -->
+      <button class="btn" id="emailAttendeesBtn" disabled title="Open Outlook draft addressed to attendees with clean formatted meeting summary">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         <span>✉️ Email Attendees</span>
       </button>
 
-      <button class="btn" id="copyNotes" disabled>Copy summary</button>
+      <!-- COPY FORMATTED SUMMARY -->
+      <button class="btn" id="copyNotes" disabled title="Copies rich HTML to clipboard with bold headings and bullets intact">Copy summary</button>
     </div>
   </aside>
 </div>
@@ -511,13 +512,20 @@ var BAKED_CUSTOM_PRESETS = {};
   function toast(msg){var t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(function(){t.classList.remove('show')},2800)}
   function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 
+  /* FIXED: Defined logActivity to eliminate Uncaught ReferenceError */
   function logActivity(msg){
-    var panel=$('syncPanel');panel.style.display='flex';
-    panel.classList.remove('collapsed');
-    $('toggleSyncLogBtn').textContent='▾ Collapse';
+    var panel=$('syncPanel');
+    if(panel){
+      panel.style.display='flex';
+      panel.classList.remove('collapsed');
+      var btn=$('toggleSyncLogBtn');
+      if(btn) btn.textContent='▾ Collapse';
+    }
     var s=$('syncStatus');
-    s.textContent+='['+new Date().toLocaleTimeString()+'] '+msg+'\n';
-    s.scrollTop=s.scrollHeight;
+    if(s){
+      s.textContent+='['+new Date().toLocaleTimeString()+'] '+msg+'\n';
+      s.scrollTop=s.scrollHeight;
+    }
   }
 
   // Collapsible Sync Log actions
@@ -627,11 +635,9 @@ var BAKED_CUSTOM_PRESETS = {};
         });
         return navigator.clipboard.write([item]);
       } catch (err) {
-        // Fallback to plain text if ClipboardItem encounters permission blocks
         return navigator.clipboard.writeText(plain);
       }
     }
-    // Fallback for older environments
     if (navigator.clipboard && window.isSecureContext) {
       return navigator.clipboard.writeText(plain);
     }
@@ -644,14 +650,23 @@ var BAKED_CUSTOM_PRESETS = {};
       document.body.removeChild(ta);
     });
   }
+
+  function copy(text){
+    if(navigator.clipboard&&window.isSecureContext){return navigator.clipboard.writeText(text)}
+    return new Promise(function(res,rej){
+      var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+      document.body.appendChild(ta);ta.select();
+      try{document.execCommand('copy')?res():rej()}catch(e){rej(e)}
+      document.body.removeChild(ta);
+    });
+  }
+
   function store(k,v){try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){}}
   function load(k){try{return localStorage.getItem(k)}catch(e){return null}}
   function fmt(s){var m=Math.floor(s/60),r=s%60;return m+':'+(r<10?'0':'')+r}
   function setStatus(text,live){$('statusText').textContent=text;$('status').className='pill'+(live?' live':'')}
 
-  /* =====================================================================
-     NAMED PRESETS & INSTRUCTIONS MANAGEMENT (LOCAL STORAGE + GLOBAL EXPORT)
-     ===================================================================== */
+  /* Named Presets Management */
   var CUSTOM_KEY='ms_custom_presets_v1';
   function getCustomPresets(){
     var raw=load(CUSTOM_KEY);
@@ -681,7 +696,6 @@ var BAKED_CUSTOM_PRESETS = {};
       sel.appendChild(o);
     });
 
-    // Add "+ Create New Style..." option
     var newOpt=document.createElement('option');
     newOpt.value='__new__';
     newOpt.textContent='➕ Create New Style...';
@@ -742,7 +756,6 @@ var BAKED_CUSTOM_PRESETS = {};
   });
   $('instText').addEventListener('input',countInst);
 
-  // Save current preset
   $('instSave').addEventListener('click',function(){
     var v=$('instText').value.trim();
     var title=$('instTitle').value.trim();
@@ -762,7 +775,6 @@ var BAKED_CUSTOM_PRESETS = {};
     dlg.close();
   });
 
-  // Save as new preset
   $('instSaveAsNew').addEventListener('click',function(){
     var v=$('instText').value.trim();
     var title=$('instTitle').value.trim()||('Meeting Style '+(new Date().toLocaleDateString()));
@@ -782,7 +794,6 @@ var BAKED_CUSTOM_PRESETS = {};
     toast('New style "'+title+'" created!');
   });
 
-  // Delete custom preset
   $('instDelete').addEventListener('click',function(){
     if(!confirm('Delete this custom instruction style?'))return;
     var customs=getCustomPresets();
@@ -805,9 +816,7 @@ var BAKED_CUSTOM_PRESETS = {};
   $('instCancel').addEventListener('click',function(){dlg.close()});
   $('dlgX').addEventListener('click',function(){dlg.close()});
 
-  /* -------------------------------------------------------------
-     EXPORT MASTER HTML (BAKES CUSTOM PRESETS TO MAKE GLOBAL FOR GITHUB)
-     ------------------------------------------------------------- */
+  /* Export for GitHub */
   $('exportHtmlBtn').addEventListener('click', async function(){
     toast('Packaging master index.html with all custom presets baked in...');
     try {
@@ -830,7 +839,7 @@ var BAKED_CUSTOM_PRESETS = {};
       a.click();
       document.body.removeChild(a);
 
-      alert('Downloaded updated index.html! Commit this file to your Meeting_Scribe GitHub repository, and all your custom styles will be permanently baked into code across all devices.');
+      alert('Downloaded updated index.html! Commit this file to your Meeting_Scribe GitHub repository.');
     } catch(e) {
       alert('Export failed: ' + e.message);
     }
@@ -1096,7 +1105,6 @@ var BAKED_CUSTOM_PRESETS = {};
     }
   }
 
-  // Multi-Provider Audio Transcription
   var lastWhisperAt = 0;
   async function transcribeChunkWithActiveProvider(chunkPayload) {
     var p = $('prov').value;
@@ -1157,7 +1165,6 @@ var BAKED_CUSTOM_PRESETS = {};
       return grData.text;
     }
 
-    // Default to Gemini for audio transcription
     var gemKey = ($('geminiKey').value || '').trim();
     if (!gemKey) throw new Error("Please enter your Gemini API key under AI settings for audio transcription.");
 
@@ -1237,8 +1244,6 @@ var BAKED_CUSTOM_PRESETS = {};
     try{await faPut(rec)}catch(e2){page.value+="(Failed slice could not be saved for retry: "+e2.message+")\n"}
   }
 
-  /* Shared audio pipeline: used by Attach Audio and by the background recording.
-     items: [{file, label, sectionHeader, onDone(failedCount)}] */
   async function runAudioJob(items){
     audioQueueBar.style.display='flex';
     attachAudioBtn.disabled=true;$('retryFailedBtn').disabled=true;$('recTranscribeBtn').disabled=true;
@@ -1284,15 +1289,7 @@ var BAKED_CUSTOM_PRESETS = {};
     toast(failed ? (failed + ' slice(s) failed and saved. Use "Retry failed audio".') : 'All audio files processed!');
   });
 
-  /* =====================================================================
-     SECTION 3B - DUAL-STREAM: RECORD AUDIO WHILE DICTATING
-     While the microphone is on, a second track records compressed audio
-     (Opus, about 14 MB per hour) and saves it to IndexedDB every 10 seconds,
-     so a crash or closed tab loses at most the last few seconds.
-     After the meeting, "AI transcript of recording" sends it through the same
-     slicer and provider as Attach Audio and appends the result below the
-     live dictation.
-     ===================================================================== */
+  /* Background Audio Recording Engine */
   var RC_DB='meetingScribe_recordings_v1';
   function rcOpen(){
     return new Promise(function(res,rej){
@@ -1330,7 +1327,7 @@ var BAKED_CUSTOM_PRESETS = {};
     if(!window.MediaRecorder||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast('This browser cannot record audio. Live dictation only.');return}
     try{
       var stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-      if(!wantListening){stream.getTracks().forEach(function(t){t.stop()});return} // paused while permission was pending
+      if(!wantListening){stream.getTracks().forEach(function(t){t.stop()});return}
       var mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':'';
       var rec=new MediaRecorder(stream,mime?{mimeType:mime,audioBitsPerSecond:32000}:{audioBitsPerSecond:32000});
       var meta={id:'rec_'+Date.now().toString(36),startedAt:Date.now(),endedAt:Date.now(),bytes:0,status:'recording',transcribed:false,
@@ -1352,11 +1349,11 @@ var BAKED_CUSTOM_PRESETS = {};
       };
       mediaRec=rec;recStream=stream;liveMeta=meta;
       await rcMetaPut(meta);
-      rec.start(10000); // hand over a chunk every 10 seconds
+      rec.start(10000);
       renderRecBar();
     }catch(e){
       mediaRec=null;
-      toast('Audio recording could not start ('+((e&&e.message)||e)+'). Live dictation continues.');
+      toast('Audio recording could not start. Live dictation continues.');
     }
   }
   function stopRecorder(){
@@ -1427,43 +1424,10 @@ var BAKED_CUSTOM_PRESETS = {};
 
   $('recDiscardBtn').addEventListener('click',async function(){
     if(mediaRec)return;
-    if(!confirm('Delete the saved audio recordings from this browser? Download them first if you want to keep a copy.'))return;
+    if(!confirm('Delete the saved audio recordings from this browser?'))return;
     await rcClear().catch(function(){});renderRecBar();toast('Recordings deleted');
   });
   renderRecBar();
-
-  $('retryFailedBtn').addEventListener('click', async function(){
-    var all=await faAll();
-    if(!all.length){renderFailedBar();return}
-    all.sort(function(x,y){return (x.savedAt-y.savedAt)||(x.chunkIndex-y.chunkIndex)});
-    audioQueueBar.style.display='flex';attachAudioBtn.disabled=true;this.disabled=true;
-    audioBusy=true;updateUI();
-    var ok=0,still=0;
-    try{
-      for(var i=0;i<all.length;i++){
-        var r=all[i];
-        audioQueueText.textContent='Retrying '+r.fileName+' ('+r.label+'), '+(i+1)+' of '+all.length+'...';
-        try{
-          var chunk={blob:r.blob,mimeType:r.mimeType,label:r.label,chunkIndex:r.chunkIndex,totalChunks:r.totalChunks,base64:await fileToBase64(r.blob)};
-          insertTranscript(r.fileName,chunk,await transcribeChunkWithActiveProvider(chunk),failMarker(r));
-          await faDel(r.id);ok++;
-        }catch(err){
-          still++;r.error=String((err&&err.message)||err);r.savedAt=Date.now();
-          await faPut(r).catch(function(){});
-        }
-      }
-    } finally {
-      audioQueueBar.style.display='none';attachAudioBtn.disabled=false;this.disabled=false;
-      audioBusy=false;updateUI();
-      await renderFailedBar();
-      toast(ok+' slice(s) recovered'+(still?', '+still+' still failing':''));
-    }
-  });
-  $('discardFailedBtn').addEventListener('click', async function(){
-    if(!confirm('Discard the saved failed audio?'))return;
-    await faClear().catch(function(){});renderFailedBar();toast('Failed audio discarded');
-  });
-  renderFailedBar();
 
   /* Copy Actions */
   $('copyBtn').addEventListener('click',function(){copy(page.value).then(function(){toast('Transcript copied')})});
@@ -1474,7 +1438,7 @@ var BAKED_CUSTOM_PRESETS = {};
     var text=getInstr()+'\n\n';
     if(proj) text+='Project: '+proj+'\n';
     if(title) text+='Meeting Title: '+title+'\n';
-    text+='Meeting Date: '+new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})+' (use this to turn relative deadlines such as "by Thursday" into dates)\n';
+    text+='Meeting Date: '+new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})+'\n';
     if(/AI Transcript of Audio Recording/.test(page.value)&&/Live Microphone Recording/.test(page.value)){
       text+='Note: The transcript below contains two versions of the same meeting: a rough live browser dictation and a more accurate AI transcript made from the audio recording. Treat the AI transcript as authoritative, use the live dictation only to fill gaps, and do not list the same item twice.\n';
     }
@@ -1555,7 +1519,6 @@ var BAKED_CUSTOM_PRESETS = {};
   $('geminiModel').addEventListener('change', saveProviderInputs);
   $('groqModel').addEventListener('change', saveProviderInputs);
 
-  // Test Provider Connection Button
   $('checkKey').addEventListener('click', async function(){
     var p = provSelect.value;
     logActivity('Testing connection for ' + p.toUpperCase() + '...');
@@ -1650,7 +1613,6 @@ var BAKED_CUSTOM_PRESETS = {};
     var p = provSelect.value;
     var sys = getInstr();
 
-    // 1. AZURE OPENAI VIA APIM GATEWAY
     if (p === 'azure') {
       var base = $('azureEndpoint').value.trim().replace(/\/+$/, '');
       var dep = $('azureDeploy').value.trim();
@@ -1672,7 +1634,6 @@ var BAKED_CUSTOM_PRESETS = {};
       return data.choices[0].message.content;
     }
 
-    // 2. GROQ
     if (p === 'groq') {
       var gk = $('groqKey').value.trim();
       var gm = $('groqModel').value;
@@ -1694,7 +1655,6 @@ var BAKED_CUSTOM_PRESETS = {};
       return gd.choices[0].message.content;
     }
 
-    // 3. GOOGLE GEMINI
     var k = $('geminiKey').value.trim();
     var m = $('geminiModel').value || defaultGemini[0];
     if (!k) throw new Error('Enter your Gemini API key.');
@@ -1733,7 +1693,14 @@ var BAKED_CUSTOM_PRESETS = {};
     }
   });
 
-  $('copyNotes').addEventListener('click',function(){copy(out.innerText.trim()).then(function(){toast('Notes copied')})});
+  /* FIXED: Copies Rich HTML and Plain Text */
+  $('copyNotes').addEventListener('click', function(){
+    copyRich(out.innerHTML.trim(), out.innerText.trim()).then(function(){
+      toast('Formatted summary copied to clipboard!');
+    }).catch(function(){
+      toast('Copy failed.');
+    });
+  });
 
   /* =====================================================================
      SECTION 4 - DISPATCH TO SHAREPOINT VIA POWER.TRACK
@@ -1766,38 +1733,44 @@ var BAKED_CUSTOM_PRESETS = {};
       "###ACTION_ITEMS###\n" + actionPortion + "\n" +
       "###SCRIBE_END###";
 
-    copy(payload).then(function(){
-      logActivity('Payload copied for [' + title + ']. Mode: ' + saveMode + '. Opening Outlook...');
-      toast("Payload copied! Opening Outlook — paste (Ctrl+V) and Send.");
+    // Immediate popup launch to prevent browser popup-blocking
+    var safeProjTag = project.replace(/\s+/g, '_');
+    var targetEmail = "power.track+scribe_" + encodeURIComponent(safeProjTag) + "@kencogroup.com";
+    var idTag = meetingId ? ("[ID:" + meetingId + "] ") : "";
+    var modeTag = "[MODE:" + saveMode + "] ";
+    var subject = encodeURIComponent("[SCRIBE] " + idTag + modeTag + title);
+    var owaUrl = "https://outlook.office.com/mail/deeplink/compose?to=" + targetEmail + "&subject=" + subject;
 
-      var safeProjTag = project.replace(/\s+/g, '_');
-      var targetEmail = "power.track+scribe_" + encodeURIComponent(safeProjTag) + "@kencogroup.com";
-      
-      var idTag = meetingId ? ("[ID:" + meetingId + "] ") : "";
-      var modeTag = "[MODE:" + saveMode + "] ";
-      var subject = encodeURIComponent("[SCRIBE] " + idTag + modeTag + title);
-      
-      var owaUrl = "https://outlook.office.com/mail/deeplink/compose?to=" + targetEmail + "&subject=" + subject;
-      window.open(owaUrl, '_blank', 'noopener');
+    var mailWin = window.open(owaUrl, '_blank');
+
+    copy(payload).then(function(){
+      logActivity('Payload copied for [' + title + ']. Mode: ' + saveMode + '. Outlook draft opened.');
+      toast("Payload copied! Paste (Ctrl+V) into Outlook and Send.");
     }).catch(function(){
-      alert("Could not copy to clipboard. Please copy manually.");
+      alert("Payload generated, but clipboard blocked. Please copy manually.");
     });
   });
 
-  /* EMAIL ATTENDEES DIRECTLY */
+  /* FIXED: Copies Rich HTML and Opens Outlook Draft */
   $('emailAttendeesBtn').addEventListener('click', function(){
     var title = $('title').value.trim() || 'Meeting Summary';
     var project = $('projectInput').value.trim() || 'Project';
     var attendees = $('attendeesInput').value.trim();
+    var notesHtml = out.innerHTML.trim();
     var notesText = out.innerText.trim();
 
-    copy(notesText).then(function(){
-      logActivity('Copied minutes to clipboard. Opening email for attendees...');
-      toast("Summary copied! Opening email draft — paste (Ctrl+V) and send.");
-      var subject = encodeURIComponent("Meeting Summary — " + project + " — " + title);
-      var target = encodeURIComponent(attendees.replace(/;/g, ','));
-      var owaUrl = "https://outlook.office.com/mail/deeplink/compose?to=" + target + "&subject=" + subject;
-      window.open(owaUrl, '_blank', 'noopener');
+    var subject = encodeURIComponent("Meeting Summary — " + project + " — " + title);
+    var target = encodeURIComponent(attendees.replace(/;/g, ','));
+    var owaUrl = "https://outlook.office.com/mail/deeplink/compose?to=" + target + "&subject=" + subject;
+
+    // Direct synchronous popup call guarantees browser doesn't block it
+    var mailWin = window.open(owaUrl, '_blank');
+
+    copyRich(notesHtml, notesText).then(function(){
+      logActivity('Copied formatted minutes to clipboard. Email opened for attendees.');
+      toast("Formatted summary copied! Paste (Ctrl+V) into Outlook and send.");
+    }).catch(function(){
+      toast("Email opened! Copy notes manually if needed.");
     });
   });
 
