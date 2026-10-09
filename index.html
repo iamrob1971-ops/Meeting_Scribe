@@ -613,12 +613,34 @@ var BAKED_CUSTOM_PRESETS = {};
   renderAuth();
   if(entraOn())initMsal().catch(function(e){console.warn('MSAL init',e)});
 
-  function copy(text){
-    if(navigator.clipboard&&window.isSecureContext){return navigator.clipboard.writeText(text)}
-    return new Promise(function(res,rej){
-      var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
-      document.body.appendChild(ta);ta.select();
-      try{document.execCommand('copy')?res():rej()}catch(e){rej(e)}
+  /* Dual-Format Clipboard Helper (Copies both Rich HTML & Plain Text) */
+  function copyRich(htmlContent, plainFallback) {
+    var plain = plainFallback || (typeof htmlContent === 'string' ? htmlContent.replace(/<[^>]+>/g, '') : '');
+    
+    if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
+      try {
+        var blobHtml = new Blob([htmlContent], { type: 'text/html' });
+        var blobText = new Blob([plain], { type: 'text/plain' });
+        var item = new ClipboardItem({
+          'text/html': blobHtml,
+          'text/plain': blobText
+        });
+        return navigator.clipboard.write([item]);
+      } catch (err) {
+        // Fallback to plain text if ClipboardItem encounters permission blocks
+        return navigator.clipboard.writeText(plain);
+      }
+    }
+    // Fallback for older environments
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(plain);
+    }
+    return new Promise(function(res, rej){
+      var ta = document.createElement('textarea');
+      ta.value = plain;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy') ? res() : rej(); } catch(e) { rej(e); }
       document.body.removeChild(ta);
     });
   }
