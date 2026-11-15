@@ -1,0 +1,39 @@
+name: One-Time Reset Meeting Scribe History
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/reset-history-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  reset-main:
+    if: github.repository == 'iamrob1971-ops/Meeting_Scribe'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Replace main with fresh history
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "iamrob1971-ops/Meeting_Scribe"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test -f index.html
+          test -f .github/workflows/publish-pages.yml
+          if grep -Eiq 'help2rr|kenco|kencogroup|sharepoint|azure|whisper|reckitt' index.html; then
+            echo "Refusing history reset: old work references or test marker found."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan clean-main
+          git add -A
+          git commit -m "Initial release: Personal Meeting Scribe"
+          git push --force origin HEAD:main
